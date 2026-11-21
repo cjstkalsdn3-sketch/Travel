@@ -407,3 +407,11 @@ a.icon-btn{color:inherit}
 .pay-rows{display:flex;flex-direction:column;gap:10px}
 .pay-rows .field{display:grid;grid-template-columns:76px 1fr;align-items:center;gap:8px}
 .pay-rows .lbl{margin:0}
+
+/* 앱 설치 */
+.install{display:flex;align-items:center;gap:12px;padding:14px}
+.install img{border-radius:12px;flex:none}
+.install>div:nth-child(2){flex:1;min-width:0;display:flex;flex-direction:column}
+.install small{font-size:12.5px;color:var(--muted)}
+.install-acts{display:flex;flex-direction:column;align-items:center;gap:4px;flex:none}
+.install-acts .link-btn{font-size:12px}
