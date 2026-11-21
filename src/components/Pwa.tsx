@@ -67,6 +67,42 @@ async function savePage(c: Cache, u: string) {
   if (d.ok) await c.put(rsc, d);
 }
 
+/* ---------- 새 버전 자동 적용 ---------- */
+const MINE = process.env.NEXT_PUBLIC_BUILD ?? '';
+let lastCheck = 0;
+let pendingReload = false;
+
+/** 지금 새로고침해도 하던 일이 날아가지 않는지 (시트·입력·끌기 중이면 다음 기회에) */
+const safeToReload = () =>
+  !document.querySelector('.scrim') &&
+  !document.documentElement.classList.contains('dragging') &&
+  !(document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement);
+
+async function checkUpdate(force = false) {
+  if (!MINE || !navigator.onLine) return;
+  if (pendingReload) {
+    if (safeToReload()) location.reload();
+    return;
+  }
+  if (!force && Date.now() - lastCheck < 15_000) return;
+  lastCheck = Date.now();
+  try {
+    const r = await fetch('/api/version', { cache: 'no-store' });
+    const { v } = (await r.json()) as { v: string };
+    if (!v || v === MINE) return;
+    // 혹시 새로고침해도 버전이 안 맞으면 계속 새로고침하지 않게 (한 버전당 한 번)
+    try {
+      if (sessionStorage.getItem('trip.reloadedFor') === v) return;
+      sessionStorage.setItem('trip.reloadedFor', v);
+    } catch {}
+    // 서비스 워커도 새 것으로 (저장해 둔 화면·그림을 갈아끼움)
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await reg?.update().catch(() => {});
+    pendingReload = true;
+    if (safeToReload()) location.reload();
+  } catch {}
+}
+
 export function Pwa() {
   const path = usePathname();
   useEffect(() => {
@@ -92,12 +128,20 @@ export function Pwa() {
     };
     window.addEventListener('beforeinstallprompt', onPrompt);
     window.addEventListener('appinstalled', onInstalled);
+    // 앱으로 돌아올 때마다 새 배포가 있는지 확인. 켜둔 채로 있으면 10분마다
+    const onVisible = () => document.visibilityState === 'visible' && void checkUpdate();
+    document.addEventListener('visibilitychange', onVisible);
+    const iv = process.env.NODE_ENV === 'production' ? setInterval(() => document.visibilityState === 'visible' && void checkUpdate(), 10 * 60_000) : undefined;
+    const first = process.env.NODE_ENV === 'production' ? setTimeout(() => void checkUpdate(true), 4000) : undefined;
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
       navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).catch(() => {});
     }
     return () => {
       window.removeEventListener('beforeinstallprompt', onPrompt);
       window.removeEventListener('appinstalled', onInstalled);
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(iv);
+      clearTimeout(first);
     };
   }, []);
   return null;
