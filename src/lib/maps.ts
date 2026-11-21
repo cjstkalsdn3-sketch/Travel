@@ -84,3 +84,28 @@ export function loadMaps(): Promise<typeof google.maps> {
   });
   return loading;
 }
+
+/* ---------- 주변 추천 ---------- */
+export type NearKind = 'food' | 'cafe' | 'sight' | 'bar';
+export interface NearHit extends PlaceHit {
+  rating?: number;
+  reviews?: number;
+  type?: string;
+  open?: boolean;
+  price?: number;
+  url?: string;
+  summary?: string;
+}
+const nearCache = new Map<string, { at: number; v: Promise<NearHit[]> }>();
+/** 같은 곳·같은 종류는 30분 동안 다시 안 부름 (구글 요금 아끼기) */
+export function nearby(at: [number, number], kind: NearKind): Promise<NearHit[]> {
+  const key = `${at[0].toFixed(4)},${at[1].toFixed(4)}:${kind}`;
+  const c = nearCache.get(key);
+  if (c && Date.now() - c.at < 30 * 60e3) return c.v;
+  const v = post<{ places: NearHit[] }>('/api/maps/nearby', { at, kind }).then((r) => r.places);
+  v.catch(() => nearCache.delete(key));
+  nearCache.set(key, { at: Date.now(), v });
+  return v;
+}
+/** 평점을 리뷰 수로 보정한 점수 (리뷰 적은 5점보다 리뷰 많은 4.5점이 위로) */
+export const nearScore = (h: NearHit) => ((h.rating ?? 0) * (h.reviews ?? 0) + 4.0 * 80) / ((h.reviews ?? 0) + 80);

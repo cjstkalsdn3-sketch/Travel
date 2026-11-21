@@ -8,6 +8,7 @@ import { useCurrentTrip } from './TripShell';
 import { WxBadge, WxDayPill } from './Wx';
 import { DayMap, ImportSheet, ReorderSheet, RouteSheet } from './maps';
 import { AltBar } from './Alts';
+import { NearbySheet } from './Nearby';
 import { snapshot, Tray, useDragBoard, type DragSrc, type Over } from './Tray';
 import { dayItems, movePlan, placeWish, unplan } from '@/lib/plan';
 import { mapsEnabled } from '@/lib/maps';
@@ -155,11 +156,16 @@ export function PlanTab() {
                     <b>{p.title}</b>
                     {p.note && <p>{p.note}</p>}
                     {focus === p.id && <span className="ev-more">한 번 더 누르면 자세히 <Icon name="chev" /></span>}
-                    {(p.place || bk) && (
+                    {(p.place || bk || p.geo) && (
                       <div className="ev-meta" onClick={(e) => e.stopPropagation()}>
                         {bk && (
                           <button className="bkchip" onClick={() => open(<BookingView trip={t} id={bk.id} />)}>
                             <Icon name="ticket" />예약 <code>{bk.code}</code>
+                          </button>
+                        )}
+                        {p.geo && mapsEnabled && (
+                          <button className="maplink near" onClick={() => open(<NearbySheet trip={t} planId={p.id} />)}>
+                            <Icon name="spark" />주변
                           </button>
                         )}
                         {p.place && (
