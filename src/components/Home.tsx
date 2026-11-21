@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { Icon } from './Icon';
+import { useInstall } from './Pwa';
 import { useCopy, useUI } from './ui';
 import { PeopleSheet, TripSheet } from './sheets';
 import { COUNTRY, WD } from '@/lib/constants';
@@ -39,6 +41,7 @@ export function Home() {
       </header>
 
       {session.offline && <div className="hint bad" role="status"><Icon name="info" />인터넷이 끊겨 있어요. 바꾼 내용은 연결되면 자동으로 올라가요.</div>}
+      <InstallCard />
       {session.status === 'ready' && session.partnerJoined === false && session.inviteCode && (
         <section className="card invite">
           <div>
@@ -154,5 +157,43 @@ function Row({ t }: { t: Trip }) {
       </span>
       <Icon name="chev" className="chev" />
     </Link>
+  );
+}
+
+const DISMISS_KEY = 'trip.installDismissed';
+function InstallCard() {
+  const { state, install } = useInstall();
+  const { toast } = useUI();
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(DISMISS_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  if (state !== 'ready' || hidden) return null;
+  return (
+    <section className="card install">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/icons/icon-192.png" alt="" width={44} height={44} />
+      <div>
+        <b>앱으로 설치하기</b>
+        <small>홈 화면에서 바로 열리고, 인터넷이 없어도 볼 수 있어요.</small>
+      </div>
+      <div className="install-acts">
+        <button className="pill-btn" onClick={async () => (await install()) && toast('설치했어요. 홈 화면에서 열어보세요')}>설치</button>
+        <button
+          className="link-btn"
+          onClick={() => {
+            setHidden(true);
+            try {
+              localStorage.setItem(DISMISS_KEY, '1');
+            } catch {}
+          }}
+        >
+          나중에
+        </button>
+      </div>
+    </section>
   );
 }
