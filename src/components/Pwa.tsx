@@ -32,7 +32,7 @@ export function useInstall() {
   return { state, install };
 }
 
-const PAGES = 'pages-v2'; // public/sw.js 와 같은 이름
+const PAGES = 'pages-v3'; // public/sw.js 와 같은 이름
 const TABS = ['', '/wish', '/money', '/check', '/info'];
 const warmed = new Set<string>();
 

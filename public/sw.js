@@ -1,5 +1,5 @@
 /* 우리 여행 서비스 워커: 인터넷이 없어도 앱이 열리게 */
-const VER = 'v2';
+const VER = 'v3';
 const PAGES = 'pages-' + VER;
 const STATIC = 'static-' + VER;
 const PRECACHE = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
