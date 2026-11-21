@@ -108,6 +108,15 @@ export interface Wish {
   geo?: Geo | null;
 }
 
+/** 지금 안 쓰는 일정 안 (A안·B안). 지금 쓰는 안은 Trip.plan */
+export interface PlanAlt {
+  id: string;
+  name: string;
+  plan: PlanItem[];
+  /** 가볼 곳 id → 이 안에서 연결된 일정 id */
+  links: Record<string, string>;
+}
+
 export interface Trip {
   id: string;
   name: string;
@@ -135,6 +144,11 @@ export interface Trip {
   /** 환율을 마지막으로 받아온 시각 */
   rateAt?: string;
   plan: PlanItem[];
+  /** 지금 쓰는 일정 안의 id·이름 (없으면 'A안' 하나뿐) */
+  altId?: string;
+  altName?: string;
+  /** 다른 일정 안들 */
+  alts?: PlanAlt[];
   exp: Expense[];
   book: Booking[];
   wish: Wish[];

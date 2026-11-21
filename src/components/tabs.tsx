@@ -7,6 +7,7 @@ import { BookingSheet, BookingView, BudgetSheet, CashSheet, RateSheet, ExpenseSh
 import { useCurrentTrip } from './TripShell';
 import { WxBadge, WxDayPill } from './Wx';
 import { DayMap, ImportSheet, ReorderSheet, RouteSheet } from './maps';
+import { AltBar } from './Alts';
 import { snapshot, Tray, useDragBoard, type DragSrc, type Over } from './Tray';
 import { dayItems, movePlan, placeWish, unplan } from '@/lib/plan';
 import { mapsEnabled } from '@/lib/maps';
@@ -73,6 +74,7 @@ export function PlanTab() {
   return (
     <div className={'plan' + (bigMap ? ' wide' : '')}>
       <div className="plan-col">
+      <AltBar trip={t} />
       <div className="days" role="tablist" aria-label="날짜">
         {ds.map((d, k) => {
           const x = pd(d);
