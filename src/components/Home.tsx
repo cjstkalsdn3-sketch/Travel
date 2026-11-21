@@ -6,7 +6,7 @@ import { Icon } from './Icon';
 import { useInstall } from './Pwa';
 import { useCopy, useUI } from './ui';
 import { PeopleSheet, TripSheet } from './sheets';
-import { COUNTRY, WD } from '@/lib/constants';
+import { COUNTRY, WD, airportName } from '@/lib/constants';
 import { sampleTrip } from '@/lib/sample';
 import { clearLegacy, legacyTrips, update, useData, useHydrated, useSession } from '@/lib/store';
 import type { Trip } from '@/lib/types';
@@ -133,6 +133,11 @@ function Pass({ t }: { t: Trip }) {
             <div className="route-line"><Icon name="plane2" /></div>
             <div className="r"><b>{t.to}</b><small>{t.toName || COUNTRY[t.country].name}</small></div>
           </div>
+        )}
+        {t.from && t.to && (t.back || t.home) && (
+          <p className="route-back">
+            <Icon name="flight" />오는 편 <b>{t.back || t.to}</b> {airportName(t.back || t.to)} → <b>{t.home || t.from}</b> {airportName(t.home || t.from)}
+          </p>
         )}
         <h2 className="pass-name">{t.name}</h2>
       </div>
