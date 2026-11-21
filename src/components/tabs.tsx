@@ -5,10 +5,17 @@ import { Icon } from './Icon';
 import { ccStyle, Seg, useCopy, useUI } from './ui';
 import { BookingSheet, BookingView, BudgetSheet, CashSheet, ExpenseSheet, PlanSheet, WishSheet } from './sheets';
 import { useCurrentTrip } from './TripShell';
+import { DayMap, ImportSheet, ReorderSheet, RouteSheet } from './maps';
+import { dayItems } from '@/lib/plan';
+import { mapsEnabled } from '@/lib/maps';
 import { CATS, CONSULATE_CALL, COUNTRY, MODES, PAYS, WD, WXL } from '@/lib/constants';
 import { updateTrip, useData } from '@/lib/store';
-import type { Cat, PayMethod, Who } from '@/lib/types';
+import type { Cat, Geo, PayMethod, Who } from '@/lib/types';
 import { daysOf, dday, dur, fmt, host, krw, localTime, mapUrl, mdw, mins, pd, rateLabel, toK, today, totals, uid } from '@/lib/utils';
+
+/** 위치가 있으면 그 장소로, 없으면 이름 검색으로 */
+const placeUrl = (q: string, g?: Geo | null) =>
+  g ? `https://www.google.com/maps/search/?api=1&query=${g.lat},${g.lng}${g.placeId ? '&query_place_id=' + encodeURIComponent(g.placeId) : ''}` : mapUrl(q);
 
 const MODE_ICON: Record<string, string> = { subway: 'move', walk: 'walk', bus: 'move', train: 'move', taxi: 'taxi' };
 
@@ -20,7 +27,8 @@ export function PlanTab() {
   const [day, setDay] = useState(() => Math.max(0, ds.indexOf(today())));
   const i = Math.min(day, ds.length - 1);
   const date = ds[i];
-  const items = t.plan.filter((p) => p.date === date).sort((a, b) => a.time.localeCompare(b.time));
+  const items = dayItems(t, date);
+  const [showMap, setShowMap] = useState(false);
   const dayK = t.exp.filter((e) => e.date === date).reduce((s, e) => s + toK(e, t), 0);
   const wx = t.weather?.[date];
   const goTo = (d: string) => setDay(Math.max(0, ds.indexOf(d)));
@@ -48,22 +56,49 @@ export function PlanTab() {
           </span>
         )}
       </div>
+      {items.length > 0 && (
+        <div className="day-acts">
+          {mapsEnabled && (
+            <button className={'chip-btn' + (showMap ? ' on' : '')} aria-pressed={showMap} onClick={() => setShowMap(!showMap)}>
+              <Icon name="map" />지도
+            </button>
+          )}
+          {mapsEnabled && items.length > 1 && (
+            <button className="chip-btn" onClick={() => open(<RouteSheet trip={t} date={date} />)}>
+              <Icon name="walk" />동선 정리
+            </button>
+          )}
+          {items.length > 1 && (
+            <button className="chip-btn" onClick={() => open(<ReorderSheet trip={t} date={date} />)}>
+              <Icon name="list" />순서 바꾸기
+            </button>
+          )}
+        </div>
+      )}
+      {showMap && mapsEnabled && <DayMap items={items} />}
       {items.length ? (
         <ol className="tl">
           {items.map((p, k) => {
             let leg = null;
-            if (k > 0 && p.travel?.min) {
+            if (k > 0) {
               const gap = mins(p.time) - mins(items[k - 1].time);
-              const stay = gap - p.travel.min;
-              leg = (
-                <li className="leg" aria-label="이동">
-                  <span /><span className="lgdot" />
-                  <span className="lg">
-                    <Icon name={MODE_ICON[p.travel.mode]} />{MODES[p.travel.mode]} {dur(p.travel.min)}
-                    {stay < 0 ? <span className="w bad">시간 간격보다 이동이 {dur(-stay)} 더 걸려요</span> : stay < 30 ? <span className="w">앞 일정에 {stay}분만 머물러요</span> : null}
-                  </span>
-                </li>
-              );
+              const tm = p.travel?.min ?? 0;
+              const stay = gap - tm;
+              const warn =
+                gap < 0 ? <span className="w bad">시간이 앞 일정보다 빨라요</span>
+                : stay < 0 ? <span className="w bad">시간 간격보다 이동이 {dur(-stay)} 더 걸려요</span>
+                : tm && stay < 30 ? <span className="w">앞 일정에 {stay}분만 머물러요</span>
+                : null;
+              if (tm || warn)
+                leg = (
+                  <li className="leg" aria-label="이동">
+                    <span /><span className="lgdot" />
+                    <span className="lg">
+                      {tm ? <><Icon name={MODE_ICON[p.travel!.mode]} />{MODES[p.travel!.mode]} {dur(tm)}</> : null}
+                      {warn}
+                    </span>
+                  </li>
+                );
             }
             const bk = t.book.find((b) => b.date === p.date && b.time === p.time);
             return (
@@ -82,7 +117,7 @@ export function PlanTab() {
                           </button>
                         )}
                         {p.place && (
-                          <a className="maplink" target="_blank" rel="noopener noreferrer" href={mapUrl(p.place)}>
+                          <a className="maplink" target="_blank" rel="noopener noreferrer" href={placeUrl(p.place, p.geo)}>
                             <Icon name="map" />지도
                           </a>
                         )}
@@ -124,6 +159,11 @@ export function WishTab() {
         </div>
         <button className="pill-btn" onClick={() => open(<WishSheet trip={t} />)}>+ 장소</button>
       </div>
+      <button className="import-row" onClick={() => open(<ImportSheet trip={t} />)}>
+        <Icon name="map" />
+        <span><b>구글지도에서 가져오기</b><small>저장해둔 장소(핀)를 한 번에 옮겨와요</small></span>
+        <Icon name="chev" />
+      </button>
       <Seg full value={f} onChange={setF} options={[['all', '전체'], ['todo', '아직'], ['in', '일정에 넣음']]} />
       {list.length ? (
         <div className="list">
@@ -145,7 +185,7 @@ export function WishTab() {
                       <a className="srclink" target="_blank" rel="noopener noreferrer" href={w.url}><Icon name="link" />{host(w.url) || '링크'}</a>
                     )}
                     {w.place && (
-                      <a className="maplink" target="_blank" rel="noopener noreferrer" href={mapUrl(w.place)}><Icon name="map" />지도</a>
+                      <a className="maplink" target="_blank" rel="noopener noreferrer" href={placeUrl(w.place, w.geo)}><Icon name="map" />지도</a>
                     )}
                     <button className="edit-s" onClick={() => open(<WishSheet trip={t} id={w.id} />)}>수정</button>
                   </div>

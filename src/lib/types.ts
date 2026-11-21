@@ -14,6 +14,16 @@ export type ExpenseDate = 'pre' | string;
 export interface Travel {
   mode: Mode;
   min: number;
+  /** 구글로 자동 계산한 값 */
+  auto?: boolean;
+}
+
+/** 지도에서 고른 장소 */
+export interface Geo {
+  lat: number;
+  lng: number;
+  placeId?: string;
+  addr?: string;
 }
 
 export interface PlanItem {
@@ -25,6 +35,13 @@ export interface PlanItem {
   note: string;
   place: string;
   travel: Travel | null;
+  geo?: Geo | null;
+  /** 같은 날 안에서의 순서 (직접 바꾼 경우). 없으면 시간 순 */
+  ord?: number;
+  /** 동선 정리 때 시간·위치를 바꾸지 않음. 없으면 항공·숙소·예약은 고정 */
+  fixed?: boolean;
+  /** 머무는 시간(분) */
+  stay?: number;
 }
 
 export interface Expense {
@@ -66,6 +83,7 @@ export interface Wish {
   place: string;
   note: string;
   planId: string | null;
+  geo?: Geo | null;
 }
 
 export interface Trip {

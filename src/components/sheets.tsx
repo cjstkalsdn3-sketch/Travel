@@ -3,10 +3,13 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CatChips, ConfirmButton, Seg, SheetHead, useCopy, useUI } from './ui';
+import { PlaceField } from './maps';
+import { isMapsUrl, mapsEnabled, resolveLink } from '@/lib/maps';
+import { DEFAULT_STAY, isFixed, ordForInsert } from '@/lib/plan';
 import { CATS, COUNTRY, CUR, MODES } from '@/lib/constants';
 import { signOut, update, updateTrip, useData, useSession } from '@/lib/store';
 import { starterChecklist } from '@/lib/sample';
-import type { Booking, Cat, CountryCode, CurCode, Expense, Mode, PayMethod, Person, PlanItem, Split, Trip, Wish } from '@/lib/types';
+import type { Booking, Cat, CountryCode, CurCode, Expense, Geo, Mode, PayMethod, Person, PlanItem, Split, Trip, Wish } from '@/lib/types';
 import { compressImage, daysOf, digits, fmt, host, iso, krw, mdw, rateLabel, toK, today, uid } from '@/lib/utils';
 
 const comma = (n: number) => (n ? n.toLocaleString('ko-KR') : '');
@@ -150,18 +153,34 @@ export function PlanSheet({
   const [min, setMin] = useState(p?.travel?.min ? String(p.travel.min) : '');
   const [place, setPlace] = useState(p?.place ?? fromWish?.place ?? '');
   const [note, setNote] = useState(p?.note ?? fromWish?.note ?? '');
+  const [geo, setGeo] = useState<Geo | null>(p?.geo ?? fromWish?.geo ?? null);
+  const [stay, setStay] = useState(p?.stay !== undefined ? String(p.stay) : '');
+  const autoFixed = p ? isFixed({ ...trip, plan: trip.plan }, { ...p, type, fixed: undefined }) : type === 'flight' || type === 'stay';
+  const [fixed, setFixed] = useState<boolean | undefined>(p?.fixed);
   const [err, setErr] = useState(false);
 
   function save() {
     if (!title.trim()) return setErr(true);
     const m = digits(min);
-    const rec: Omit<PlanItem, 'id'> = { title: title.trim(), type, date, time: time || '12:00', place: place.trim(), note: note.trim(), travel: mode && m ? { mode, min: m } : null };
+    const prevTravel = p?.travel;
+    const travel = mode && m ? { mode, min: m, ...(prevTravel?.auto && prevTravel.mode === mode && prevTravel.min === m ? { auto: true } : {}) } : null;
+    const rec: Omit<PlanItem, 'id'> = { title: title.trim(), type, date, time: time || '12:00', place: place.trim(), note: note.trim(), travel, geo };
+    if (stay !== '') rec.stay = digits(stay);
+    if (fixed !== undefined) rec.fixed = fixed;
     updateTrip(trip.id, (t) => {
       let pid = p?.id;
-      if (pid) Object.assign(t.plan.find((x) => x.id === pid)!, rec);
-      else {
+      const moved = !p || p.date !== date || p.time !== rec.time;
+      const ord = moved ? ordForInsert(t, date, rec.time, pid) : p?.ord;
+      if (pid) {
+        const it = t.plan.find((x) => x.id === pid)!;
+        Object.assign(it, rec);
+        if (stay === '') delete it.stay;
+        if (fixed === undefined) delete it.fixed;
+        if (ord === undefined) delete it.ord;
+        else it.ord = ord;
+      } else {
         pid = uid();
-        t.plan.push({ id: pid, ...rec });
+        t.plan.push({ id: pid, ...rec, ...(ord !== undefined ? { ord } : {}) });
       }
       if (fromWish) {
         const w = t.wish.find((x) => x.id === fromWish.id);
@@ -179,6 +198,17 @@ export function PlanSheet({
       <input className="inp" placeholder="무엇을 하나요? (예: 팀랩 플래닛)" value={title} onChange={(e) => (setTitle(e.target.value), setErr(false))} aria-invalid={err} autoComplete="off" autoFocus={!p && !fromWish} />
       {err && <p className="err">무엇을 하는지 적어주세요.</p>}
       <CatChips value={type} onChange={setType} keys={['sight', 'food', 'shop', 'move', 'stay', 'flight', 'etc']} label={(c) => (c === 'sight' ? '구경' : CATS[c])} />
+      <PlaceField
+        trip={trip}
+        id="plPlace"
+        value={place}
+        geo={geo}
+        onChange={(pl, g, hit) => {
+          setPlace(pl);
+          setGeo(g);
+          if (hit && !title.trim()) setTitle(hit.name);
+        }}
+      />
       <div className="row2">
         <div className="field">
           <label htmlFor="plDate">날짜</label>
@@ -208,9 +238,15 @@ export function PlanSheet({
           <input className="inp num" id="plMin" inputMode="numeric" placeholder="20" value={min} onChange={(e) => setMin(e.target.value.replace(/[^\d]/g, ''))} autoComplete="off" />
         </div>
       </div>
-      <div className="field">
-        <label htmlFor="plPlace">장소 (지도 검색어)</label>
-        <input className="inp" id="plPlace" placeholder="예: teamLab Planets TOKYO" value={place} onChange={(e) => setPlace(e.target.value)} autoComplete="off" />
+      <div className="row2">
+        <div className="field">
+          <label htmlFor="plStay">머무는 시간(분)</label>
+          <input className="inp num" id="plStay" inputMode="numeric" placeholder={String(DEFAULT_STAY[type])} value={stay} onChange={(e) => setStay(e.target.value.replace(/[^\d]/g, ''))} autoComplete="off" />
+        </div>
+        <div className="field">
+          <span className="lbl">동선 정리 때</span>
+          <Seg full value={(fixed ?? autoFixed) ? 'fix' : 'free'} onChange={(v) => setFixed(v === 'fix')} options={[['free', '옮겨도 됨'], ['fix', '고정']]} />
+        </div>
       </div>
       <div className="field">
         <label htmlFor="plNote">메모</label>
@@ -243,12 +279,29 @@ export function WishSheet({ trip, id }: { trip: Trip; id?: string }) {
   const [type, setType] = useState<Cat>(w?.type ?? 'food');
   const [place, setPlace] = useState(w?.place ?? '');
   const [note, setNote] = useState(w?.note ?? '');
+  const [geo, setGeo] = useState<Geo | null>(w?.geo ?? null);
+  const [linkBusy, setLinkBusy] = useState(false);
   const [err, setErr] = useState(false);
+
+  function onUrl(v: string) {
+    setUrl(v);
+    if (!mapsEnabled || !isMapsUrl(v)) return;
+    setLinkBusy(true);
+    resolveLink(v)
+      .then((h) => {
+        if (!h) return;
+        setPlace(h.name);
+        setGeo({ lat: h.lat, lng: h.lng, placeId: h.placeId, addr: h.addr });
+        setTitle((t) => t || h.name);
+      })
+      .catch(() => {})
+      .finally(() => setLinkBusy(false));
+  }
 
   function save() {
     const name = title.trim() || (url.trim() && (host(url.trim()) || url.trim()));
     if (!name) return setErr(true);
-    const rec = { title: name, type, url: url.trim(), place: place.trim(), note: note.trim() };
+    const rec = { title: name, type, url: url.trim(), place: place.trim(), note: note.trim(), geo };
     updateTrip(trip.id, (t) => {
       if (w) Object.assign(t.wish.find((x) => x.id === w.id)!, rec);
       else t.wish.unshift({ id: uid(), planId: null, ...rec });
@@ -260,16 +313,27 @@ export function WishSheet({ trip, id }: { trip: Trip; id?: string }) {
     <>
       <SheetHead title={w ? '가볼 곳 고치기' : '가볼 곳 저장'} />
       <div className="field">
-        <label htmlFor="wsUrl">링크 (인스타, 블로그, 유튜브)</label>
-        <input className="inp" id="wsUrl" type="url" inputMode="url" placeholder="붙여넣기" value={url} onChange={(e) => setUrl(e.target.value)} autoComplete="off" />
+        <label htmlFor="wsUrl">링크 (구글지도, 인스타, 블로그)</label>
+        <div className="place-in">
+          <input className="inp" id="wsUrl" type="url" inputMode="url" placeholder="붙여넣기" value={url} onChange={(e) => onUrl(e.target.value)} autoComplete="off" />
+          {linkBusy && <span className="spin" aria-label="장소 찾는 중" />}
+        </div>
       </div>
       <input className="inp" placeholder="이름 (예: 이치란 라멘 시부야)" value={title} onChange={(e) => (setTitle(e.target.value), setErr(false))} aria-invalid={err} autoComplete="off" />
       {err && <p className="err">이름이나 링크 중 하나는 있어야 해요.</p>}
       <CatChips value={type} onChange={setType} keys={['food', 'sight', 'shop', 'stay', 'etc']} />
-      <div className="field">
-        <label htmlFor="wsPlace">장소 (지도 검색어)</label>
-        <input className="inp" id="wsPlace" placeholder="예: Ichiran Shibuya" value={place} onChange={(e) => setPlace(e.target.value)} autoComplete="off" />
-      </div>
+      <PlaceField
+        trip={trip}
+        id="wsPlace"
+        value={place}
+        geo={geo}
+        key={geo ? `${geo.lat},${geo.lng}` : 'none'}
+        onChange={(pl, g, hit) => {
+          setPlace(pl);
+          setGeo(g);
+          if (hit && !title.trim()) setTitle(hit.name);
+        }}
+      />
       <input className="inp" placeholder="메모 (예: 웨이팅 길어요)" value={note} onChange={(e) => setNote(e.target.value)} autoComplete="off" />
       <button className="primary" onClick={save}>저장하기</button>
       {w && (
