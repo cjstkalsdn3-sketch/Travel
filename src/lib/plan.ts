@@ -1,5 +1,6 @@
 import type { Booking, Cat, Geo, PlanItem, Trip, Wish } from './types';
 import { daysOf, mins, uid } from './utils';
+import { AIRPORT_CITY, COUNTRY } from './constants';
 
 /** 종류별 기본 머무는 시간(분) */
 export const DEFAULT_STAY: Record<Cat, number> = { flight: 0, stay: 30, food: 60, move: 0, sight: 90, shop: 60, etc: 60, station: 10, bus: 10 };
@@ -337,4 +338,19 @@ export function renameAlt(t: Trip, id: string, name: string) {
 /** 지금 안 쓰는 안만 지울 수 있음 */
 export function deleteAlt(t: Trip, id: string) {
   t.alts = (t.alts ?? []).filter((x) => x.id !== id);
+}
+
+/**
+ * 장소 검색 기준 위치. 도착 공항의 도시를 기준으로, 그 근처(여행지)에 찍힌 장소들의 가운데.
+ * 인천공항처럼 한국에 찍힌 일정은 빼서 검색이 한국 쪽으로 끌려가지 않게 한다.
+ */
+export function tripCenter(t: Trip): [number, number] {
+  const a = AIRPORT_CITY[(t.to || '').toUpperCase()] ?? COUNTRY[t.country].center;
+  const anchor = { lat: a[0], lng: a[1] };
+  const near = [...t.plan.filter((p) => p.type !== 'flight'), ...t.wish]
+    .map((x) => x.geo)
+    .filter((g): g is Geo => !!g && km(anchor, g) < 600);
+  if (!near.length) return a;
+  const mid = (xs: number[]) => xs.sort((x, y) => x - y)[Math.floor(xs.length / 2)];
+  return [mid(near.map((g) => g.lat)), mid(near.map((g) => g.lng))];
 }

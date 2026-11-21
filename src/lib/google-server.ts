@@ -24,8 +24,9 @@ export interface PlaceHit {
   kind?: string;
 }
 
-export async function textSearch(req: Request, q: string, bias?: [number, number], radius = 30000): Promise<PlaceHit[]> {
+export async function textSearch(req: Request, q: string, bias?: [number, number], radius = 30000, region?: string): Promise<PlaceHit[]> {
   const body: Record<string, unknown> = { textQuery: q, languageCode: 'ko', maxResultCount: 6 };
+  if (region) body.regionCode = region.toLowerCase();
   if (bias) body.locationBias = { circle: { center: { latitude: bias[0], longitude: bias[1] }, radius } };
   const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
@@ -106,4 +107,35 @@ async function toNear(r: Response): Promise<NearHit[]> {
     url: p.googleMapsUri,
     summary: p.editorialSummary?.text,
   }));
+}
+
+/** 입력 중 자동완성. 여행 나라 안에서만, 기준 위치 근처를 먼저 */
+export async function autocomplete(req: Request, q: string, bias: [number, number], region: string, session?: string) {
+  const r = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+    method: 'POST',
+    headers: googleHeaders(req, 'suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat'),
+    body: JSON.stringify({
+      input: q,
+      languageCode: 'ko',
+      includedRegionCodes: [region.toLowerCase()],
+      locationBias: { circle: { center: { latitude: bias[0], longitude: bias[1] }, radius: 50000 } },
+      origin: { latitude: bias[0], longitude: bias[1] },
+      ...(session ? { sessionToken: session } : {}),
+    }),
+  });
+  if (!r.ok) throw new Error(`autocomplete ${r.status}: ${await r.text()}`);
+  const j = (await r.json()) as { suggestions?: { placePrediction?: { placeId: string; structuredFormat?: { mainText?: { text: string }; secondaryText?: { text: string } } } }[] };
+  return (j.suggestions ?? [])
+    .map((x) => x.placePrediction)
+    .filter((p): p is NonNullable<typeof p> => !!p)
+    .map((p) => ({ placeId: p.placeId, name: p.structuredFormat?.mainText?.text ?? '', addr: p.structuredFormat?.secondaryText?.text ?? '' }));
+}
+
+/** 자동완성에서 고른 장소의 위치 (같은 세션이면 자동완성 요금은 안 나감) */
+export async function placeById(req: Request, id: string, session?: string): Promise<PlaceHit> {
+  const u = `https://places.googleapis.com/v1/places/${encodeURIComponent(id)}?languageCode=ko${session ? '&sessionToken=' + encodeURIComponent(session) : ''}`;
+  const r = await fetch(u, { headers: googleHeaders(req, 'id,displayName,formattedAddress,location,primaryType') });
+  if (!r.ok) throw new Error(`place ${r.status}: ${await r.text()}`);
+  const p = (await r.json()) as { id: string; displayName?: { text: string }; formattedAddress?: string; location: { latitude: number; longitude: number }; primaryType?: string };
+  return { name: p.displayName?.text ?? '', addr: p.formattedAddress ?? '', lat: p.location.latitude, lng: p.location.longitude, placeId: p.id, kind: p.primaryType };
 }

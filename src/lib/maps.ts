@@ -28,8 +28,21 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 export const isMapsUrl = (s: string) => /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|(www\.)?google\.[a-z.]+\/maps|maps\.google\.[a-z.]+)/i.test(s.trim());
 
-export function searchPlaces(q: string, bias?: [number, number]): Promise<PlaceHit[]> {
-  return post<{ places: PlaceHit[] }>('/api/maps/search', { q, bias }).then((r) => r.places);
+export function searchPlaces(q: string, bias?: [number, number], region?: string): Promise<PlaceHit[]> {
+  return post<{ places: PlaceHit[] }>('/api/maps/search', { q, bias, region }).then((r) => r.places);
+}
+
+/** 입력하는 동안 자동완성 (한국어 부분 입력도 잘 잡음). 위치는 고를 때 placeDetails로 받음 */
+export interface Suggest {
+  placeId: string;
+  name: string;
+  addr: string;
+}
+export function suggestPlaces(q: string, bias: [number, number], region: string, session: string): Promise<Suggest[]> {
+  return post<{ list: Suggest[] }>('/api/maps/suggest', { q, bias, region, session }).then((r) => r.list);
+}
+export function placeDetails(id: string, session?: string): Promise<PlaceHit> {
+  return post<{ place: PlaceHit }>('/api/maps/place', { id, session }).then((r) => r.place);
 }
 
 /** 구글지도 공유 링크 → 장소 */
