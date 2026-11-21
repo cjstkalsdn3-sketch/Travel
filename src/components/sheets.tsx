@@ -8,7 +8,7 @@ import { PlaceField } from './maps';
 import { NearbySheet } from './Nearby';
 import { isMapsUrl, mapsEnabled, resolveLink } from '@/lib/maps';
 import { DEFAULT_STAY, isFixed, ordForInsert, unplan } from '@/lib/plan';
-import { CATS, COUNTRY, CUR, EXP_CATS, MODES } from '@/lib/constants';
+import { AIRPORTS, CATS, COUNTRY, CUR, EXP_CATS, KR_AIRPORTS, MODES, airportName } from '@/lib/constants';
 import { liveRate } from '@/lib/fx';
 import { signOut, update, updateTrip, useData, useSession } from '@/lib/store';
 import { starterChecklist } from '@/lib/sample';
@@ -495,6 +495,28 @@ export function BookingSheet({ trip, id }: { trip: Trip; id?: string }) {
 }
 
 /* ================= 여행 만들기 / 설정 ================= */
+/** 공항 고르기. 목록에 없으면 '직접 입력' */
+function AirportPick({ id, label, list, value, onChange }: { id: string; label: string; list: [string, string][]; value: string; onChange: (v: string) => void }) {
+  const known = !value || list.some(([c]) => c === value);
+  const [own, setOwn] = useState(!known);
+  return (
+    <div className="field ap">
+      <label htmlFor={id}>{label}</label>
+      {own ? (
+        <input className="inp" id={id} placeholder="코드 3자리" maxLength={3} value={value} onChange={(e) => onChange(e.target.value.toUpperCase())} onBlur={() => !value && setOwn(false)} style={{ textTransform: 'uppercase' }} autoComplete="off" autoFocus />
+      ) : (
+        <select className="inp" id={id} value={value} onChange={(e) => (e.target.value === '*' ? (setOwn(true), onChange('')) : onChange(e.target.value))}>
+          {!value && <option value="">고르기</option>}
+          {list.map(([c, n]) => (
+            <option key={c} value={c}>{n} {c}</option>
+          ))}
+          <option value="*">직접 입력…</option>
+        </select>
+      )}
+    </div>
+  );
+}
+
 export function TripSheet({ trip }: { trip?: Trip }) {
   const { close, toast } = useUI();
   const router = useRouter();
@@ -506,7 +528,12 @@ export function TripSheet({ trip }: { trip?: Trip }) {
   const [start, setStart] = useState(trip?.start ?? iso(s0));
   const [end, setEnd] = useState(trip?.end ?? iso(e0));
   const [country, setCountry] = useState<CountryCode>(trip?.country ?? 'JP');
+  const [from, setFrom] = useState(trip?.from || 'ICN');
   const [to, setTo] = useState(trip?.to ?? '');
+  const [back, setBack] = useState(trip?.back || trip?.to || '');
+  const [home, setHome] = useState(trip?.home || trip?.from || 'ICN');
+  const [backSame, setBackSame] = useState(!trip?.back || trip.back === trip.to);
+  const [homeSame, setHomeSame] = useState(!trip?.home || trip.home === trip.from);
   const [budget, setBudget] = useState(trip ? comma(trip.budget) : '');
   const [err, setErr] = useState(false);
 
@@ -516,22 +543,29 @@ export function TripSheet({ trip }: { trip?: Trip }) {
     if (e < s) [s, e] = [e, s];
     const cur = COUNTRY[country].cur;
     const code = to.trim().toUpperCase();
-    const rec = { name: name.trim(), start: s, end: e, country, to: code, from: code ? 'ICN' : '', fromName: '인천', budget: digits(budget) || 2000000 };
+    const f = from.trim().toUpperCase() || 'ICN';
+    const bk = backSame ? code : back.trim().toUpperCase();
+    const hm = homeSame ? f : home.trim().toUpperCase();
+    const rec = {
+      name: name.trim(), start: s, end: e, country, to: code, from: code ? f : '', fromName: airportName(f) || f,
+      back: bk && bk !== code ? bk : undefined, home: hm && hm !== f ? hm : undefined, budget: digits(budget) || 2000000,
+    };
     if (trip) {
       updateTrip(trip.id, (t) => {
         if (t.cur !== cur) {
           Object.assign(t, { cur, rate: CUR[cur].rate });
           delete t.rateAt;
         }
-        if (t.to !== code) t.toName = '';
-        Object.assign(t, rec);
+        Object.assign(t, rec, { toName: airportName(code) });
+        if (!rec.back) delete t.back;
+        if (!rec.home) delete t.home;
       });
       close();
       toast('저장했어요');
       return;
     }
     const id = uid();
-    const nt: Trip = { id, ...rec, toName: '', cur, rate: CUR[cur].rate, cash: 0, weather: null, plan: [], exp: [], book: [], wish: [], check: starterChecklist() };
+    const nt: Trip = { id, ...rec, toName: airportName(code), cur, rate: CUR[cur].rate, cash: 0, weather: null, plan: [], exp: [], book: [], wish: [], check: starterChecklist() };
     update((d) => void d.trips.push(nt));
     close();
     toast('새 여행을 만들었어요');
@@ -553,19 +587,28 @@ export function TripSheet({ trip }: { trip?: Trip }) {
           <input className="inp" type="date" id="trE" value={end} onChange={(e) => setEnd(e.target.value)} />
         </div>
       </div>
-      <div className="row2">
-        <div className="field">
-          <label htmlFor="trC">나라</label>
-          <select className="inp" id="trC" value={country} onChange={(e) => setCountry(e.target.value as CountryCode)}>
-            {(Object.keys(COUNTRY) as CountryCode[]).map((k) => (
-              <option key={k} value={k}>{COUNTRY[k].name} ({CUR[COUNTRY[k].cur].name})</option>
-            ))}
-          </select>
+      <div className="field">
+        <label htmlFor="trC">나라</label>
+        <select className="inp" id="trC" value={country} onChange={(e) => setCountry(e.target.value as CountryCode)}>
+          {(Object.keys(COUNTRY) as CountryCode[]).map((k) => (
+            <option key={k} value={k}>{COUNTRY[k].name} ({CUR[COUNTRY[k].cur].name})</option>
+          ))}
+        </select>
+      </div>
+      <div className="flights">
+        <div className="fl-row">
+          <span className="fl-lbl"><Icon name="flight" />가는 편</span>
+          <AirportPick id="apF" label="출발" list={KR_AIRPORTS} value={from} onChange={setFrom} />
+          <span className="fl-arrow">→</span>
+          <AirportPick id="apT" label="도착" list={AIRPORTS[country]} value={to} onChange={(v) => setTo(v)} />
         </div>
-        <div className="field">
-          <label htmlFor="trTo">도착 공항 코드</label>
-          <input className="inp" id="trTo" placeholder="KIX" maxLength={3} value={to} onChange={(e) => setTo(e.target.value)} style={{ textTransform: 'uppercase' }} autoComplete="off" />
+        <div className="fl-row">
+          <span className="fl-lbl"><Icon name="flight" className="ret" />오는 편</span>
+          <AirportPick id="apB" label="출발" list={AIRPORTS[country]} value={backSame ? to : back} onChange={(v) => { setBack(v); setBackSame(v === to); }} />
+          <span className="fl-arrow">→</span>
+          <AirportPick id="apH" label="도착" list={KR_AIRPORTS} value={homeSame ? from : home} onChange={(v) => { setHome(v); setHomeSame(v === from); }} />
         </div>
+        <p className="note">갈 때와 올 때 공항이 다르면 오는 편만 바꾸세요. 같으면 자동으로 따라가요.</p>
       </div>
       <div className="field">
         <label htmlFor="trB">총예산 (원)</label>

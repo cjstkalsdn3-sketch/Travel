@@ -125,6 +125,10 @@ export interface Trip {
   fromName: string;
   to: string;
   toName: string;
+  /** 오는 편 출발 공항 (없으면 to와 같음) */
+  back?: string;
+  /** 오는 편 도착 공항 (없으면 from과 같음) */
+  home?: string;
   start: string;
   end: string;
   cur: CurCode;
