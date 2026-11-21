@@ -1,7 +1,7 @@
 'use client';
 
 import { findMapsUrl, mapsEnabled, resolveMany, searchPlaces, type PlaceHit } from './maps';
-import { COUNTRY } from './constants';
+import { tripCenter } from './plan';
 import { updateTrip } from './store';
 import type { Cat, Trip, Wish } from './types';
 import { uid } from './utils';
@@ -18,10 +18,6 @@ export function kindToCat(k?: string): Cat {
   return 'sight';
 }
 
-const centerOf = (t: Trip): [number, number] => {
-  const g = t.plan.find((p) => p.geo)?.geo ?? t.wish.find((w) => w.geo)?.geo;
-  return g ? [g.lat, g.lng] : COUNTRY[t.country].center;
-};
 
 const toWish = (h: PlaceHit, url: string, note = ''): Wish => ({
   id: uid(),
@@ -59,10 +55,10 @@ export async function importShared(trip: Trip, text: string): Promise<ImportResu
       // 공유 글 첫 줄이 장소 이름이면 그걸로 다시 찾아봄
       if (!hits.length) {
         const name = s.replace(url, '').split('\n').map((x) => x.trim()).find(Boolean);
-        if (name && mapsEnabled) hits = (await searchPlaces(name, centerOf(trip))).slice(0, 1);
+        if (name && mapsEnabled) hits = (await searchPlaces(name, tripCenter(trip), trip.country)).slice(0, 1);
       }
     } else if (mapsEnabled && s.length <= 80 && !/^https?:/i.test(s)) {
-      hits = (await searchPlaces(s.split('\n')[0], centerOf(trip))).slice(0, 1);
+      hits = (await searchPlaces(s.split('\n')[0], tripCenter(trip), trip.country)).slice(0, 1);
     } else if (/^https?:/i.test(s)) {
       return { added: [], dup: 0, list: false, err: '구글지도 링크가 아니에요. 가볼 곳에서 직접 추가해주세요.' };
     }

@@ -4,16 +4,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { SheetHead, useUI } from './ui';
 import { COUNTRY, MODES } from '@/lib/constants';
-import { isMapsUrl, loadMaps, mapsEnabled, pickLeg, resolveLink, searchPlaces, travelMatrix, type LegTime, type PlaceHit } from '@/lib/maps';
-import { dayItems, hhmm, isFixed, optimize, pathCost, stayOf, writeOrder, type Matrix } from '@/lib/plan';
+import { isMapsUrl, loadMaps, mapsEnabled, pickLeg, placeDetails, resolveLink, searchPlaces, suggestPlaces, travelMatrix, type LegTime, type PlaceHit } from '@/lib/maps';
+import { tripCenter, dayItems, hhmm, isFixed, optimize, pathCost, stayOf, writeOrder, type Matrix } from '@/lib/plan';
 import { updateTrip } from '@/lib/store';
 import type { Cat, Geo, PlanItem, Trip, Wish } from '@/lib/types';
 import { dur, host, mdw, mins, pd, uid } from '@/lib/utils';
-
-export const tripCenter = (t: Trip): [number, number] => {
-  const g = t.plan.find((p) => p.geo)?.geo ?? t.wish.find((w) => w.geo)?.geo;
-  return g ? [g.lat, g.lng] : COUNTRY[t.country].center;
-};
 
 /* ================= 장소 입력: 검색 + 구글지도 링크 ================= */
 export function PlaceField({
@@ -32,7 +27,10 @@ export function PlaceField({
   id?: string;
 }) {
   const [q, setQ] = useState(value);
-  const [hits, setHits] = useState<PlaceHit[]>([]);
+  // 자동완성 결과(위치는 고를 때 받음) 또는 일반 검색 결과(위치 포함)
+  const [hits, setHits] = useState<{ key: string; name: string; addr: string; placeId?: string; hit?: PlaceHit }[]>([]);
+  const session = useRef('');
+  const seq = useRef(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -41,7 +39,17 @@ export function PlaceField({
   function pick(h: PlaceHit) {
     setQ(h.name);
     setHits([]);
+    session.current = '';
     onChange(h.name, { lat: h.lat, lng: h.lng, placeId: h.placeId, addr: h.addr }, h);
+  }
+  function choose(x: (typeof hits)[number]) {
+    if (x.hit) return pick(x.hit);
+    if (!x.placeId) return;
+    setBusy(true);
+    placeDetails(x.placeId, session.current)
+      .then((h) => pick({ ...h, name: x.name || h.name }))
+      .catch(() => setErr('위치를 받아오지 못했어요. 다시 눌러주세요.'))
+      .finally(() => setBusy(false));
   }
 
   function onInput(v: string) {
@@ -58,14 +66,23 @@ export function PlaceField({
         .finally(() => setBusy(false));
       return;
     }
-    if (v.trim().length < 2) return setHits([]);
-    timer.current = setTimeout(() => {
+    if (!v.trim()) return setHits([]);
+    timer.current = setTimeout(async () => {
+      const my = ++seq.current;
+      session.current ||= crypto.randomUUID();
       setBusy(true);
-      searchPlaces(v, bias)
-        .then(setHits)
-        .catch(() => setErr('검색이 안 돼요. 인터넷을 확인해주세요.'))
-        .finally(() => setBusy(false));
-    }, 400);
+      try {
+        // 1) 여행 나라 안 자동완성  2) 없으면 일반 검색
+        let list: typeof hits = (await suggestPlaces(v, bias, trip.country, session.current).catch(() => [])).map((x) => ({ ...x, key: x.placeId }));
+        if (!list.length && v.trim().length >= 2)
+          list = (await searchPlaces(v, bias, trip.country)).map((h) => ({ key: h.placeId ?? h.name + h.lat, name: h.name, addr: h.addr, placeId: h.placeId, hit: h }));
+        if (my === seq.current) setHits(list);
+      } catch {
+        if (my === seq.current) setErr('검색이 안 돼요. 인터넷을 확인해주세요.');
+      } finally {
+        if (my === seq.current) setBusy(false);
+      }
+    }, 300);
   }
 
   return (
@@ -86,8 +103,8 @@ export function PlaceField({
       {hits.length > 0 && (
         <ul className="hits" id={id + '-list'} role="listbox">
           {hits.map((h) => (
-            <li key={h.placeId ?? h.name + h.lat}>
-              <button type="button" role="option" aria-selected={false} onClick={() => pick(h)}>
+            <li key={h.key}>
+              <button type="button" role="option" aria-selected={false} onClick={() => choose(h)}>
                 <b>{h.name}</b>
                 <small>{h.addr}</small>
               </button>
@@ -411,7 +428,7 @@ export function ImportSheet({ trip }: { trip: Trip }) {
   const [cands, setCands] = useState<Cand[] | null>(null);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
-  const center = COUNTRY[trip.country].center;
+  const center = tripCenter(trip);
 
   async function onFile(files?: FileList | null) {
     if (!files?.length) return;
@@ -457,7 +474,7 @@ export function ImportSheet({ trip }: { trip: Trip }) {
       if (!geo && mapsEnabled) {
         setBusy(`위치 찾는 중 ${i + 1}/${picked.length}`);
         try {
-          const h = (await searchPlaces(c.name, center))[0];
+          const h = (await searchPlaces(c.name, center, trip.country))[0];
           if (h) geo = { lat: h.lat, lng: h.lng, placeId: h.placeId, addr: h.addr };
         } catch {}
       }
