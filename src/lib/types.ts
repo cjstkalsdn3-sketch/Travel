@@ -1,5 +1,7 @@
 export type Person = 'm' | 'g';
 export type Who = Person | 'both';
+/** 'common' = 공용 지갑(둘이 같이 모은 돈)에서 냄. 정산에는 안 들어감 */
+export type Payer = Person | 'common';
 export type Cat = 'flight' | 'stay' | 'food' | 'move' | 'sight' | 'shop' | 'etc';
 export type CurCode = 'JPY' | 'USD' | 'EUR' | 'THB' | 'TWD' | 'VND' | 'KRW';
 export type CountryCode = 'JP' | 'TW' | 'TH' | 'VN' | 'US' | 'FR' | 'IT' | 'ES';
@@ -14,6 +16,16 @@ export type ExpenseDate = 'pre' | string;
 export interface Travel {
   mode: Mode;
   min: number;
+  /** 구글로 자동 계산한 값 */
+  auto?: boolean;
+}
+
+/** 지도에서 고른 장소 */
+export interface Geo {
+  lat: number;
+  lng: number;
+  placeId?: string;
+  addr?: string;
 }
 
 export interface PlanItem {
@@ -25,6 +37,13 @@ export interface PlanItem {
   note: string;
   place: string;
   travel: Travel | null;
+  geo?: Geo | null;
+  /** 같은 날 안에서의 순서 (직접 바꾼 경우). 없으면 시간 순 */
+  ord?: number;
+  /** 동선 정리 때 시간·위치를 바꾸지 않음. 없으면 항공·숙소·예약은 고정 */
+  fixed?: boolean;
+  /** 머무는 시간(분) */
+  stay?: number;
 }
 
 export interface Expense {
@@ -33,7 +52,7 @@ export interface Expense {
   amt: number;
   cur: CurCode;
   cat: Cat;
-  payer: Person;
+  payer: Payer;
   pay: PayMethod;
   split: Split;
   title: string;
@@ -66,6 +85,7 @@ export interface Wish {
   place: string;
   note: string;
   planId: string | null;
+  geo?: Geo | null;
 }
 
 export interface Trip {
@@ -95,6 +115,6 @@ export interface Trip {
 export interface AppData {
   version: 1;
   people: Record<Person, { name: string }>;
-  last: { payer: Person; pay: PayMethod };
+  last: { payer: Payer; pay: PayMethod };
   trips: Trip[];
 }

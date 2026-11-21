@@ -30,6 +30,10 @@ export interface CountryInfo {
   tip: string;
   entry: string;
   sos: [string, string][];
+  /** 지도 기본 중심 */
+  center: [number, number];
+  /** UTC 기준 시차(시간, 표준시) */
+  utc: number;
 }
 
 const EU_TIP = '봉사료가 포함돼 있어서 필수는 아니에요. 잔돈 정도 두면 충분해요.';
@@ -38,14 +42,14 @@ const EU_VOLT = '230V · 한국 플러그가 그대로 맞아요';
 const EU_TZ = '한국보다 8시간 느려요 (서머타임엔 7시간)';
 
 export const COUNTRY: Record<CountryCode, CountryInfo> = {
-  JP: { name: '일본', cur: 'JPY', tzid: 'Asia/Tokyo', tz: '한국과 같아요 (시차 없음)', volt: '100V · 11자 납작 핀(A타입)이라 돼지코 어댑터가 필요해요', tip: '팁 문화가 없어요. 주면 오히려 당황해요.', entry: '90일 무비자 · Visit Japan Web에 미리 등록하면 입국 심사가 빨라요.', sos: [['경찰', '110'], ['구급·화재', '119']] },
-  TW: { name: '대만', cur: 'TWD', tzid: 'Asia/Taipei', tz: '한국보다 1시간 느려요', volt: '110V · 11자 납작 핀(A타입)이라 돼지코 어댑터가 필요해요', tip: '팁 문화가 없어요. 식당 계산서에 봉사료 10%가 붙기도 해요.', entry: '90일 무비자 · 입국신고서는 온라인으로 미리 작성할 수 있어요.', sos: [['경찰', '110'], ['구급·화재', '119']] },
-  TH: { name: '태국', cur: 'THB', tzid: 'Asia/Bangkok', tz: '한국보다 2시간 느려요', volt: '220V · 한국 플러그가 대부분 맞아요', tip: '필수는 아니지만 마사지나 호텔에선 20~100바트 정도 주는 편이에요.', entry: '무비자 입국 가능 (허용 일수는 출국 전 확인) · 태국 디지털 입국카드(TDAC)를 미리 등록하세요.', sos: [['관광경찰', '1155'], ['경찰', '191'], ['구급', '1669']] },
-  VN: { name: '베트남', cur: 'VND', tzid: 'Asia/Ho_Chi_Minh', tz: '한국보다 2시간 느려요', volt: '220V · 한국 플러그가 대부분 맞아요', tip: '필수는 아니에요. 마사지 등에선 소액 팁을 주기도 해요.', entry: '45일 무비자', sos: [['경찰', '113'], ['화재', '114'], ['구급', '115']] },
-  US: { name: '미국', cur: 'USD', tzid: 'America/New_York', tz: '동부 기준 14시간 느려요 (서머타임엔 13시간, 서부는 3시간 더)', volt: '120V · 11자 납작 핀(A/B타입)이라 돼지코 어댑터가 필요해요', tip: '식당 15~20%, 택시 15% 정도가 기본이에요.', entry: 'ESTA 사전 승인이 꼭 필요해요. 출발 72시간 전까지 받아두세요.', sos: [['경찰·구급·화재', '911']] },
-  FR: { name: '프랑스', cur: 'EUR', tzid: 'Europe/Paris', tz: EU_TZ, volt: EU_VOLT, tip: EU_TIP, entry: EU_ENTRY, sos: [['유럽 공통 긴급', '112']] },
-  IT: { name: '이탈리아', cur: 'EUR', tzid: 'Europe/Rome', tz: EU_TZ, volt: EU_VOLT, tip: EU_TIP, entry: EU_ENTRY, sos: [['유럽 공통 긴급', '112']] },
-  ES: { name: '스페인', cur: 'EUR', tzid: 'Europe/Madrid', tz: EU_TZ, volt: EU_VOLT, tip: EU_TIP, entry: EU_ENTRY, sos: [['유럽 공통 긴급', '112']] },
+  JP: { name: '일본', cur: 'JPY', tzid: 'Asia/Tokyo', tz: '한국과 같아요 (시차 없음)', volt: '100V · 11자 납작 핀(A타입)이라 돼지코 어댑터가 필요해요', tip: '팁 문화가 없어요. 주면 오히려 당황해요.', entry: '90일 무비자 · Visit Japan Web에 미리 등록하면 입국 심사가 빨라요.', sos: [['경찰', '110'], ['구급·화재', '119']], center: [35.681,139.767], utc: 9 },
+  TW: { name: '대만', cur: 'TWD', tzid: 'Asia/Taipei', tz: '한국보다 1시간 느려요', volt: '110V · 11자 납작 핀(A타입)이라 돼지코 어댑터가 필요해요', tip: '팁 문화가 없어요. 식당 계산서에 봉사료 10%가 붙기도 해요.', entry: '90일 무비자 · 입국신고서는 온라인으로 미리 작성할 수 있어요.', sos: [['경찰', '110'], ['구급·화재', '119']], center: [25.033,121.565], utc: 8 },
+  TH: { name: '태국', cur: 'THB', tzid: 'Asia/Bangkok', tz: '한국보다 2시간 느려요', volt: '220V · 한국 플러그가 대부분 맞아요', tip: '필수는 아니지만 마사지나 호텔에선 20~100바트 정도 주는 편이에요.', entry: '무비자 입국 가능 (허용 일수는 출국 전 확인) · 태국 디지털 입국카드(TDAC)를 미리 등록하세요.', sos: [['관광경찰', '1155'], ['경찰', '191'], ['구급', '1669']], center: [13.756,100.502], utc: 7 },
+  VN: { name: '베트남', cur: 'VND', tzid: 'Asia/Ho_Chi_Minh', tz: '한국보다 2시간 느려요', volt: '220V · 한국 플러그가 대부분 맞아요', tip: '필수는 아니에요. 마사지 등에선 소액 팁을 주기도 해요.', entry: '45일 무비자', sos: [['경찰', '113'], ['화재', '114'], ['구급', '115']], center: [16.054,108.202], utc: 7 },
+  US: { name: '미국', cur: 'USD', tzid: 'America/New_York', tz: '동부 기준 14시간 느려요 (서머타임엔 13시간, 서부는 3시간 더)', volt: '120V · 11자 납작 핀(A/B타입)이라 돼지코 어댑터가 필요해요', tip: '식당 15~20%, 택시 15% 정도가 기본이에요.', entry: 'ESTA 사전 승인이 꼭 필요해요. 출발 72시간 전까지 받아두세요.', sos: [['경찰·구급·화재', '911']], center: [40.713,-74.006], utc: -5 },
+  FR: { name: '프랑스', cur: 'EUR', tzid: 'Europe/Paris', tz: EU_TZ, volt: EU_VOLT, tip: EU_TIP, entry: EU_ENTRY, sos: [['유럽 공통 긴급', '112']], center: [48.857,2.352], utc: 1 },
+  IT: { name: '이탈리아', cur: 'EUR', tzid: 'Europe/Rome', tz: EU_TZ, volt: EU_VOLT, tip: EU_TIP, entry: EU_ENTRY, sos: [['유럽 공통 긴급', '112']], center: [41.903,12.496], utc: 1 },
+  ES: { name: '스페인', cur: 'EUR', tzid: 'Europe/Madrid', tz: EU_TZ, volt: EU_VOLT, tip: EU_TIP, entry: EU_ENTRY, sos: [['유럽 공통 긴급', '112']], center: [40.417,-3.704], utc: 1 },
 };
 
 export const CONSULATE_CALL = '+82-2-3210-0404';
