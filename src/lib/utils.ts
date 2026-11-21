@@ -68,7 +68,7 @@ export function totals(t: Trip) {
   let spent = 0,
     pre = 0,
     cashLocal = 0;
-  const paid = { m: 0, g: 0 },
+  const paid = { m: 0, g: 0, common: 0 },
     owe = { m: 0, g: 0 },
     byCat: Record<string, number> = {},
     byPay = { card: 0, travel: 0, cash: 0 };
@@ -80,6 +80,7 @@ export function totals(t: Trip) {
     byCat[e.cat] = (byCat[e.cat] || 0) + k;
     byPay[e.pay] += k;
     if (e.pay === 'cash' && e.cur === t.cur) cashLocal += e.amt;
+    if (e.payer === 'common') continue;
     const other = e.payer === 'm' ? 'g' : 'm';
     if (e.split === 'half') {
       owe.m += k / 2;

@@ -9,7 +9,7 @@ import { DEFAULT_STAY, isFixed, ordForInsert } from '@/lib/plan';
 import { CATS, COUNTRY, CUR, MODES } from '@/lib/constants';
 import { signOut, update, updateTrip, useData, useSession } from '@/lib/store';
 import { starterChecklist } from '@/lib/sample';
-import type { Booking, Cat, CountryCode, CurCode, Expense, Geo, Mode, PayMethod, Person, PlanItem, Split, Trip, Wish } from '@/lib/types';
+import type { Booking, Cat, CountryCode, CurCode, Expense, Geo, Mode, PayMethod, Payer, PlanItem, Split, Trip, Wish } from '@/lib/types';
 import { compressImage, daysOf, digits, fmt, host, iso, krw, mdw, rateLabel, toK, today, uid } from '@/lib/utils';
 
 const comma = (n: number) => (n ? n.toLocaleString('ko-KR') : '');
@@ -26,7 +26,7 @@ export function ExpenseSheet({ trip, id, onSaved }: { trip: Trip; id?: string; o
   const [amt, setAmt] = useState(e ? String(e.amt) : '');
   const [cur, setCur] = useState<CurCode>(e?.cur ?? trip.cur);
   const [cat, setCat] = useState<Cat>(e?.cat ?? 'food');
-  const [payer, setPayer] = useState<Person>(e?.payer ?? data.last.payer);
+  const [payer, setPayer] = useState<Payer>(e?.payer ?? data.last.payer);
   const [pay, setPay] = useState<PayMethod>(e?.pay ?? data.last.pay);
   const [split, setSplit] = useState<Split>(e?.split ?? 'half');
   const [title, setTitle] = useState(e?.title ?? '');
@@ -49,7 +49,7 @@ export function ExpenseSheet({ trip, id, onSaved }: { trip: Trip; id?: string; o
   }
   function save() {
     if (!a) return;
-    const rec: Omit<Expense, 'id'> = { amt: a, cur, cat, payer, pay, split, title: title.trim(), date };
+    const rec: Omit<Expense, 'id'> = { amt: a, cur, cat, payer, pay, split: payer === 'common' ? 'half' : split, title: title.trim(), date };
     update((d) => {
       const t = d.trips.find((x) => x.id === trip.id)!;
       if (e) Object.assign(t.exp.find((x) => x.id === e.id)!, rec);
@@ -74,10 +74,10 @@ export function ExpenseSheet({ trip, id, onSaved }: { trip: Trip; id?: string; o
         <div className="conv">{cur === 'KRW' ? (a ? '원화로 결제' : '') : a ? `≈ ${krw(toK({ amt: a, cur }, trip))}` : rateLabel(trip)}</div>
       </div>
       <CatChips value={cat} onChange={setCat} keys={Object.keys(CATS) as Cat[]} />
-      <div className="row2">
+      <div className="pay-rows">
         <div className="field">
           <span className="lbl">누가 냈어요?</span>
-          <Seg full value={payer} onChange={setPayer} options={[['m', names.m.name], ['g', names.g.name]]} />
+          <Seg full value={payer} onChange={setPayer} options={[['m', names.m.name], ['g', names.g.name], ['common', '공용']]} />
         </div>
         <div className="field">
           <span className="lbl">어떻게?</span>
@@ -97,10 +97,14 @@ export function ExpenseSheet({ trip, id, onSaved }: { trip: Trip; id?: string; o
         </summary>
         <div className="inner">
           <input className="inp" placeholder="메모 (예: 이치란 라멘)" value={title} onChange={(ev) => setTitle(ev.target.value)} autoComplete="off" />
-          <div className="field">
-            <span className="lbl">나누기</span>
-            <Seg full value={split} onChange={setSplit} options={[['half', '반반'], ['payer', '낸 사람 부담'], ['other', '상대 몫']]} />
-          </div>
+          {payer === 'common' ? (
+            <p className="note" style={{ margin: 0 }}>공용 지갑에서 낸 돈은 정산에 안 들어가요.</p>
+          ) : (
+            <div className="field">
+              <span className="lbl">나누기</span>
+              <Seg full value={split} onChange={setSplit} options={[['half', '반반'], ['payer', '낸 사람 부담'], ['other', '상대 몫']]} />
+            </div>
+          )}
           <div className="field">
             <label htmlFor="expDate">언제</label>
             <select className="inp" id="expDate" value={date} onChange={(ev) => setDate(ev.target.value)}>

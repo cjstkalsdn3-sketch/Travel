@@ -1,5 +1,7 @@
 export type Person = 'm' | 'g';
 export type Who = Person | 'both';
+/** 'common' = 공용 지갑(둘이 같이 모은 돈)에서 냄. 정산에는 안 들어감 */
+export type Payer = Person | 'common';
 export type Cat = 'flight' | 'stay' | 'food' | 'move' | 'sight' | 'shop' | 'etc';
 export type CurCode = 'JPY' | 'USD' | 'EUR' | 'THB' | 'TWD' | 'VND' | 'KRW';
 export type CountryCode = 'JP' | 'TW' | 'TH' | 'VN' | 'US' | 'FR' | 'IT' | 'ES';
@@ -50,7 +52,7 @@ export interface Expense {
   amt: number;
   cur: CurCode;
   cat: Cat;
-  payer: Person;
+  payer: Payer;
   pay: PayMethod;
   split: Split;
   title: string;
@@ -113,6 +115,6 @@ export interface Trip {
 export interface AppData {
   version: 1;
   people: Record<Person, { name: string }>;
-  last: { payer: Person; pay: PayMethod };
+  last: { payer: Payer; pay: PayMethod };
   trips: Trip[];
 }

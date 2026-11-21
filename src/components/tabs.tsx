@@ -284,6 +284,9 @@ export function MoneyTab() {
             <div>{people.m.name}가 낸 돈<b>{krw(T.paid.m)}</b></div>
             <div>{people.g.name}가 낸 돈<b>{krw(T.paid.g)}</b></div>
           </div>
+          {T.paid.common > 0 && (
+            <div className="kv" style={{ marginTop: 10 }}><span>공용 지갑에서 낸 돈 (정산 제외)</span><b className="num">{krw(T.paid.common)}</b></div>
+          )}
         </div>
       </section>
 
@@ -314,7 +317,7 @@ export function MoneyTab() {
                     <span className="cat-ic"><Icon name={e.cat} /></span>
                     <span className="t">
                       <b>{e.title || CATS[e.cat]}</b>
-                      <small><i className={'who ' + e.payer} />{people[e.payer].name} · {PAYS[e.pay]}{e.split !== 'half' ? ' · ' + (e.split === 'payer' ? '본인 부담' : '상대 몫') : ''}</small>
+                      <small><i className={'who ' + e.payer} />{e.payer === 'common' ? '공용' : people[e.payer].name} · {PAYS[e.pay]}{e.payer !== 'common' && e.split !== 'half' ? ' · ' + (e.split === 'payer' ? '본인 부담' : '상대 몫') : ''}</small>
                     </span>
                     <span className="v"><b>{fmt(e.amt, e.cur)}</b>{e.cur !== 'KRW' && <small>{krw(toK(e, t))}</small>}</span>
                   </button>
