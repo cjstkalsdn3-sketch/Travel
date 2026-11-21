@@ -2,19 +2,22 @@
 
 import Link from 'next/link';
 import { Icon } from './Icon';
-import { useUI } from './ui';
+import { useCopy, useUI } from './ui';
 import { PeopleSheet, TripSheet } from './sheets';
 import { COUNTRY, WD } from '@/lib/constants';
 import { sampleTrip } from '@/lib/sample';
-import { update, useData, useHydrated } from '@/lib/store';
+import { clearLegacy, legacyTrips, update, useData, useHydrated, useSession } from '@/lib/store';
 import type { Trip } from '@/lib/types';
 import { daysOf, dday, krw, md, pd, today, totals } from '@/lib/utils';
 
 export function Home() {
   const data = useData();
   const hydrated = useHydrated();
+  const session = useSession();
   const { open, toast } = useUI();
+  const copy = useCopy();
   if (!hydrated) return <main className="shell" />;
+  const legacy = session.status === 'ready' ? legacyTrips() : [];
   const T = today();
   const d = pd(T);
   const ts = [...data.trips].sort((a, b) => a.start.localeCompare(b.start));
@@ -34,6 +37,40 @@ export function Home() {
           <span className="av g">{g.name.slice(0, 1)}</span>
         </button>
       </header>
+
+      {session.offline && <div className="hint bad" role="status"><Icon name="info" />인터넷이 끊겨 있어요. 바꾼 내용은 연결되면 자동으로 올라가요.</div>}
+      {session.status === 'ready' && session.partnerJoined === false && session.inviteCode && (
+        <section className="card invite">
+          <div>
+            <small>{g.name}에게 이 코드를 보내주세요</small>
+            <b className="num">{session.inviteCode}</b>
+            <p className="note" style={{ margin: 0 }}>앱에서 가입한 뒤 &quot;초대 코드 받았어요&quot;에 넣으면 같은 여행을 같이 봐요.</p>
+          </div>
+          <button className="pill-btn" onClick={() => copy(session.inviteCode!)}>복사</button>
+        </section>
+      )}
+      {legacy.length > 0 && (
+        <section className="card invite">
+          <div>
+            <small>로그인 전에 이 폰에만 저장한 여행</small>
+            <b style={{ fontSize: 16 }}>{legacy.length}개를 함께 쓰는 공간으로 옮길까요?</b>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <button
+              className="pill-btn"
+              onClick={() => {
+                const ids = new Set(data.trips.map((t) => t.id));
+                update((x) => void x.trips.push(...legacy.filter((t) => !ids.has(t.id))));
+                clearLegacy();
+                toast('여행을 옮겼어요');
+              }}
+            >
+              옮기기
+            </button>
+            <button className="edit-s" onClick={clearLegacy}>안 옮김</button>
+          </div>
+        </section>
+      )}
 
       {up[0] ? (
         <Pass t={up[0]} />

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Sans_KR, Space_Grotesk } from 'next/font/google';
 import { UIProvider } from '@/components/ui';
+import { Gate } from '@/components/Gate';
 import './globals.css';
 
 const plex = IBM_Plex_Sans_KR({ weight: ['400', '500', '600', '700'], subsets: ['latin'], variable: '--font-plex', display: 'swap', preload: false });
@@ -26,7 +27,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ko" className={`${plex.variable} ${grotesk.variable}`}>
       <body>
-        <UIProvider>{children}</UIProvider>
+        <UIProvider>
+          <Gate>{children}</Gate>
+        </UIProvider>
       </body>
     </html>
   );

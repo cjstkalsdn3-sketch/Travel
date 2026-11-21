@@ -1,7 +1,12 @@
 import { CUR, WD } from './constants';
 import type { CurCode, Expense, Trip } from './types';
 
-export const uid = () => Math.random().toString(36).slice(2, 10);
+/** 만든 순서대로 정렬되는 id (시간 + 순번 + 무작위) */
+let seq = 0;
+export const uid = () =>
+  Date.now().toString(36).padStart(9, '0') +
+  (seq++ % 1296).toString(36).padStart(2, '0') +
+  Math.random().toString(36).slice(2, 6);
 
 export const pd = (s: string) => {
   const [y, m, d] = s.split('-').map(Number);
