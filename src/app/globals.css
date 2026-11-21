@@ -494,3 +494,8 @@ html.dragging,html.dragging *{user-select:none!important;-webkit-user-select:non
 .toast.has-act{display:flex;align-items:center;gap:12px;padding-right:8px}
 .toast.has-act button{color:var(--accent-soft);font-weight:700;padding:4px 10px;border-radius:99px;background:color-mix(in srgb,var(--bg) 16%,transparent)}
 body:has(.tray) .toast{bottom:calc(256px + env(safe-area-inset-bottom,0px))}
+.share-how{background:var(--accent-soft);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;font-size:14px}
+.share-how>b{color:var(--accent);font-size:13px}
+.share-how ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.share-how p{margin:0;color:var(--muted);font-size:13px}
+details.more .howto{margin-bottom:12px}
