@@ -5,11 +5,20 @@ import { uid } from './utils';
 /** 처음 써보는 사람을 위한 예시 여행. 홈의 "예시 여행 둘러보기"로만 추가된다. */
 export function sampleTrip(): Trip {
   const T = (mode: Mode, min: number) => ({ mode, min });
-  const P = (date: string, time: string, type: Cat, title: string, note = '', place = '', travel: PlanItem['travel'] = null): PlanItem => ({ id: uid(), date, time, type, title, note, place, travel });
+  // 예시 장소 좌표 (지도에 바로 보이게)
+  const GEO: Record<string, [number, number]> = {
+    'Keisei Ueno Station': [35.7113, 139.7738], 'Mitsui Garden Hotel Ueno': [35.7107, 139.777], 'Ameyoko Shopping Street': [35.7103, 139.7744],
+    'Tsukiji Outer Market': [35.6654, 139.7707], Ginza: [35.6717, 139.765], 'teamLab Planets TOKYO': [35.6491, 139.7898], 'Tokyo Tower': [35.6586, 139.7454],
+    'Shibuya Sky': [35.6585, 139.7022], 'Cat Street Harajuku': [35.6681, 139.706], 'Omoide Yokocho': [35.6929, 139.6995], 'Shinjuku Station': [35.69, 139.7004],
+    Owakudani: [35.244, 139.0198], 'Hakone Yuryo': [35.2296, 139.1015], 'Ueno Park': [35.7148, 139.7737], 'Narita Airport Terminal 1': [35.7647, 140.3863],
+    'Ichiran Shibuya': [35.661, 139.7006], 'Azabudai Hills': [35.6605, 139.74], Nakameguro: [35.6441, 139.6988],
+  };
+  const G = (place: string) => (GEO[place] ? { geo: { lat: GEO[place][0], lng: GEO[place][1] } } : {});
+  const P = (date: string, time: string, type: Cat, title: string, note = '', place = '', travel: PlanItem['travel'] = null): PlanItem => ({ id: uid(), date, time, type, title, note, place, travel, ...G(place) });
   const E = (date: string, amt: number, cur: Expense['cur'], cat: Cat, payer: Person, title: string, pay: PayMethod = 'card', split: Split = 'half'): Expense => ({ id: uid(), date, amt, cur, cat, payer, title, pay, split });
   const C = (group: string, text: string, who: Who, done = false): CheckItem => ({ id: uid(), group, text, who, done });
   const B = (type: Cat, title: string, code: string, date: string, time: string, detail: string): Booking => ({ id: uid(), type, title, code, date, time, detail, img: null });
-  const W = (title: string, type: Cat, url: string, place: string, note: string, planId: string | null = null): Wish => ({ id: uid(), title, type, url, place, note, planId });
+  const W = (title: string, type: Cat, url: string, place: string, note: string, planId: string | null = null): Wish => ({ id: uid(), title, type, url, place, note, planId, ...G(place) });
   const tower = P('2026-12-25', '19:00', 'sight', '도쿄타워 크리스마스 야경', '', 'Tokyo Tower', T('subway', 30));
   return {
     id: uid(), name: '(예시) 도쿄 크리스마스', country: 'JP', from: 'ICN', fromName: '인천', to: 'NRT', toName: '도쿄 나리타',

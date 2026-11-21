@@ -56,7 +56,7 @@ export function TripShell({ children }: { children: React.ReactNode }) {
   const showFab = tab === '' || tab === 'money';
   return (
     <TripCtx.Provider value={t}>
-      <main className="shell">
+      <main className={'shell trip t-' + (tab || 'plan')}>
         <header className="trip-h">
           <Link className="icon-btn" href="/" aria-label="홈으로"><Icon name="back" /></Link>
           <div className="t">
@@ -73,6 +73,10 @@ export function TripShell({ children }: { children: React.ReactNode }) {
         </button>
       )}
       <div className="tabbar">
+        <Link className="rail-home" href="/" aria-label="홈으로">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icons/icon-192.png" alt="" width={44} height={44} />
+        </Link>
         <nav>
           {TABS.map(([k, icon, label]) => (
             <Link key={k} className={'tab' + (tab === k ? ' on' : '')} href={k ? `${base}/${k}` : base} aria-current={tab === k ? 'page' : undefined} replace scroll>
