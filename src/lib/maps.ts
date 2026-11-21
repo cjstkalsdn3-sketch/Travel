@@ -28,8 +28,8 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 export const isMapsUrl = (s: string) => /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|(www\.)?google\.[a-z.]+\/maps|maps\.google\.[a-z.]+)/i.test(s.trim());
 
-export function searchPlaces(q: string, bias?: [number, number], region?: string): Promise<PlaceHit[]> {
-  return post<{ places: PlaceHit[] }>('/api/maps/search', { q, bias, region }).then((r) => r.places);
+export function searchPlaces(q: string, bias?: [number, number], region?: string, type?: string): Promise<PlaceHit[]> {
+  return post<{ places: PlaceHit[] }>('/api/maps/search', { q, bias, region, type }).then((r) => r.places);
 }
 
 /** 입력하는 동안 자동완성 (한국어 부분 입력도 잘 잡음). 위치는 고를 때 placeDetails로 받음 */

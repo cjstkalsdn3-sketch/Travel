@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { SheetHead, useUI } from './ui';
 import { COUNTRY, MODES } from '@/lib/constants';
-import { isMapsUrl, loadMaps, mapsEnabled, pickLeg, placeDetails, resolveLink, searchPlaces, suggestPlaces, travelMatrix, type LegTime, type PlaceHit } from '@/lib/maps';
+import { isMapsUrl, loadMaps, mapsEnabled, pickLeg, placeDetails, resolveLink, searchPlaces, suggestPlaces, travelMatrix, type LegTime, type PlaceHit, type Suggest } from '@/lib/maps';
 import { tripCenter, dayItems, hhmm, isFixed, optimize, pathCost, stayOf, writeOrder, type Matrix } from '@/lib/plan';
 import { updateTrip } from '@/lib/store';
 import type { Cat, Geo, PlanItem, Trip, Wish } from '@/lib/types';
@@ -18,6 +18,7 @@ export function PlaceField({
   onChange,
   label = '장소',
   id = 'place',
+  hint,
 }: {
   trip: Trip;
   value: string;
@@ -25,6 +26,8 @@ export function PlaceField({
   onChange: (place: string, geo: Geo | null, hit?: PlaceHit) => void;
   label?: string;
   id?: string;
+  /** 고른 태그 (전철역·버스면 역/정류장을 먼저 찾음) */
+  hint?: Cat;
 }) {
   const [q, setQ] = useState(value);
   // 자동완성 결과(위치는 고를 때 받음) 또는 일반 검색 결과(위치 포함)
@@ -72,10 +75,27 @@ export function PlaceField({
       session.current ||= crypto.randomUUID();
       setBusy(true);
       try {
-        // 1) 여행 나라 안 자동완성  2) 없으면 일반 검색
-        let list: typeof hits = (await suggestPlaces(v, bias, trip.country, session.current).catch(() => [])).map((x) => ({ ...x, key: x.placeId }));
-        if (!list.length && v.trim().length >= 2)
-          list = (await searchPlaces(v, bias, trip.country)).map((h) => ({ key: h.placeId ?? h.name + h.lat, name: h.name, addr: h.addr, placeId: h.placeId, hit: h }));
+        // 역 이름으로 찾으면 ("난바역", "namba station", "難波駅") 역만 따로 한 번 더 찾아 맨 위에
+        const stationQ = /(역|station|駅|정류장|정류소|터미널)$/i.test(v.trim()) || hint === 'station' || hint === 'bus';
+        const type = hint === 'bus' || /(정류장|정류소|터미널)$/.test(v.trim()) ? 'bus_station' : 'transit_station';
+        const toRow = (h: PlaceHit) => ({ key: h.placeId ?? h.name + h.lat, name: h.name, addr: h.addr, placeId: h.placeId, hit: h });
+        const [stations, sug] = await Promise.all([
+          stationQ && v.trim().length >= 2 ? searchPlaces(v.trim(), bias, trip.country, type).catch(() => []) : Promise.resolve([] as PlaceHit[]),
+          // 1) 여행 나라 안 자동완성
+          suggestPlaces(v, bias, trip.country, session.current).catch(() => [] as Suggest[]),
+        ]);
+        let list: typeof hits = [...stations.map(toRow), ...sug.map((x) => ({ ...x, key: x.placeId }))];
+        // 2) 없으면 일반 검색
+        if (!list.length && v.trim().length >= 2) list = (await searchPlaces(v, bias, trip.country)).map(toRow);
+        const seen = new Set<string>();
+        list = list
+          .filter((x) => {
+            const k = x.placeId ?? x.key;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          })
+          .slice(0, 8);
         if (my === seq.current) setHits(list);
       } catch {
         if (my === seq.current) setErr('검색이 안 돼요. 인터넷을 확인해주세요.');
