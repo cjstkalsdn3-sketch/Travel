@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CatChips, ConfirmButton, Seg, SheetHead, useCopy, useUI } from './ui';
 import { CATS, COUNTRY, CUR, MODES } from '@/lib/constants';
-import { update, updateTrip, useData } from '@/lib/store';
+import { signOut, update, updateTrip, useData, useSession } from '@/lib/store';
 import { starterChecklist } from '@/lib/sample';
 import type { Booking, Cat, CountryCode, CurCode, Expense, Mode, PayMethod, Person, PlanItem, Split, Trip, Wish } from '@/lib/types';
 import { compressImage, daysOf, digits, fmt, host, iso, krw, mdw, rateLabel, toK, today, uid } from '@/lib/utils';
@@ -564,6 +564,7 @@ export function CashSheet({ trip }: { trip: Trip }) {
 export function PeopleSheet() {
   const { close, toast } = useUI();
   const d = useData();
+  const s = useSession();
   const [m, setM] = useState(d.people.m.name);
   const [g, setG] = useState(d.people.g.name);
   return (
@@ -591,6 +592,12 @@ export function PeopleSheet() {
       >
         저장
       </button>
+      {s.status === 'ready' && (
+        <>
+          <p className="note" style={{ margin: 0 }}>{s.email} 로 로그인됨{s.inviteCode ? ` · 초대 코드 ${s.inviteCode}` : ''}</p>
+          <ConfirmButton label="로그아웃" confirm="한 번 더 누르면 로그아웃돼요" onConfirm={() => (close(), void signOut())} />
+        </>
+      )}
     </>
   );
 }
