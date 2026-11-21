@@ -24,9 +24,11 @@ export interface PlaceHit {
   kind?: string;
 }
 
-export async function textSearch(req: Request, q: string, bias?: [number, number], radius = 30000, region?: string): Promise<PlaceHit[]> {
+export async function textSearch(req: Request, q: string, bias?: [number, number], radius = 30000, region?: string, type?: string): Promise<PlaceHit[]> {
   const body: Record<string, unknown> = { textQuery: q, languageCode: 'ko', maxResultCount: 6 };
   if (region) body.regionCode = region.toLowerCase();
+  // 역·정류장만 찾을 때 (자동완성이 "난바역"을 "난바점" 가게로만 맞추는 문제)
+  if (type) Object.assign(body, { includedType: type, strictTypeFiltering: true });
   if (bias) body.locationBias = { circle: { center: { latitude: bias[0], longitude: bias[1] }, radius } };
   const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',

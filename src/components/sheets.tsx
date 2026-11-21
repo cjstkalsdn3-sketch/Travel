@@ -220,6 +220,7 @@ export function PlanSheet({
       <PlaceField
         trip={trip}
         id="plPlace"
+        hint={type}
         value={place}
         geo={geo}
         onChange={(pl, g, hit) => {
@@ -313,6 +314,8 @@ export function WishSheet({ trip, id }: { trip: Trip; id?: string }) {
   const [geo, setGeo] = useState<Geo | null>(w?.geo ?? null);
   const [linkBusy, setLinkBusy] = useState(false);
   const [err, setErr] = useState(false);
+  // 링크로 장소를 받았을 때만 장소 칸을 새로 그림 (장소 칸에 타이핑할 때 다시 그리면 글자가 날아감)
+  const [linkN, setLinkN] = useState(0);
 
   function onUrl(v: string) {
     setUrl(v);
@@ -323,6 +326,7 @@ export function WishSheet({ trip, id }: { trip: Trip; id?: string }) {
         if (!h) return;
         setPlace(h.name);
         setGeo({ lat: h.lat, lng: h.lng, placeId: h.placeId, addr: h.addr });
+        setLinkN((n) => n + 1);
         setTitle((t) => t || h.name);
       })
       .catch(() => {})
@@ -356,9 +360,10 @@ export function WishSheet({ trip, id }: { trip: Trip; id?: string }) {
       <PlaceField
         trip={trip}
         id="wsPlace"
+        hint={type}
         value={place}
         geo={geo}
-        key={geo ? `${geo.lat},${geo.lng}` : 'none'}
+        key={linkN}
         onChange={(pl, g, hit) => {
           setPlace(pl);
           setGeo(g);
