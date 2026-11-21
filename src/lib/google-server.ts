@@ -1,5 +1,5 @@
 /** 서버에서 구글 API를 부를 때 쓰는 공통 부분 */
-export const SERVER_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || '';
+export const SERVER_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || 'AIzaSyCN6dOXRsnO5QDgGE75fUHzwzgbalqi-sw';
 
 /** 키가 웹사이트 주소로 제한돼 있어서, 앱 주소를 Referer로 붙여 보낸다 */
 export function googleHeaders(req: Request, fieldMask: string): HeadersInit {

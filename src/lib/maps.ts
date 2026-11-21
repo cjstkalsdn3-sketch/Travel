@@ -7,7 +7,8 @@ import type { Geo, Mode } from './types';
  * 장소 검색·링크 풀기·이동 시간은 /api/maps/* 서버 경로를 거친다.
  * 지도 그리기는 Maps JavaScript API를 직접 불러온다.
  */
-export const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || '';
+/** 공개 키(브라우저에 노출됨). 구글 콘솔에서 웹사이트 제한으로 보호 */
+export const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || 'AIzaSyCN6dOXRsnO5QDgGE75fUHzwzgbalqi-sw';
 export const mapsEnabled = !!MAPS_KEY;
 
 export interface PlaceHit {
