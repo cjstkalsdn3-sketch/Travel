@@ -277,3 +277,64 @@ export function autoPlace(t: Trip, ids?: string[]): number {
   }
   return n;
 }
+
+/* ---------- 일정 안 (A안·B안) ---------- */
+const ABC = 'ABCDEFGHIJ';
+export const altNameOf = (t: Trip) => t.altName || 'A안';
+/** 모든 안 */
+export function allAlts(t: Trip): { id: string; name: string; count: number; on: boolean }[] {
+  const cur = { id: t.altId || 'base', name: altNameOf(t), count: t.plan.length, on: true };
+  const rest = (t.alts ?? []).map((a) => ({ id: a.id, name: a.name, count: a.plan.length, on: false }));
+  // 만든 순서대로 (id가 시간 순)
+  return [cur, ...rest].sort((a, b) => (a.id === 'base' ? -1 : b.id === 'base' ? 1 : a.id < b.id ? -1 : 1));
+}
+function nextName(t: Trip) {
+  const used = new Set([altNameOf(t), ...(t.alts ?? []).map((a) => a.name)]);
+  for (const c of ABC) if (!used.has(c + '안')) return c + '안';
+  return `${used.size + 1}번째 안`;
+}
+const linksOf = (t: Trip) => Object.fromEntries(t.wish.filter((w) => w.planId && t.plan.some((p) => p.id === w.planId)).map((w) => [w.id, w.planId!]));
+/** 지금 안을 보관함에 넣기 */
+function stash(t: Trip) {
+  t.altId ||= uid();
+  (t.alts ??= []).push({ id: t.altId, name: altNameOf(t), plan: t.plan, links: linksOf(t) });
+}
+function load(t: Trip, a: { id: string; name: string; plan: PlanItem[]; links: Record<string, string> }) {
+  t.altId = a.id;
+  t.altName = a.name;
+  t.plan = a.plan;
+  const ids = new Set(a.plan.map((p) => p.id));
+  for (const w of t.wish) {
+    const pid = a.links[w.id];
+    w.planId = pid && ids.has(pid) ? pid : null;
+  }
+}
+/** 새 안 만들고 바로 그 안으로. copy=false면 항공·숙소처럼 고정된 일정만 가져감 */
+export function newAlt(t: Trip, copy: boolean): string {
+  const name = nextName(t);
+  const plan = (copy ? t.plan : t.plan.filter((p) => isFixed(t, p))).map((p) => ({ ...p }));
+  const links = copy ? linksOf(t) : {};
+  stash(t);
+  load(t, { id: uid(), name, plan, links });
+  return name;
+}
+export function switchAlt(t: Trip, id: string) {
+  const a = t.alts?.find((x) => x.id === id);
+  if (!a) return;
+  t.alts = t.alts!.filter((x) => x.id !== id);
+  stash(t);
+  load(t, a);
+}
+export function renameAlt(t: Trip, id: string, name: string) {
+  name = name.trim();
+  if (!name) return;
+  if (id === (t.altId || 'base')) t.altName = name;
+  else {
+    const a = t.alts?.find((x) => x.id === id);
+    if (a) a.name = name;
+  }
+}
+/** 지금 안 쓰는 안만 지울 수 있음 */
+export function deleteAlt(t: Trip, id: string) {
+  t.alts = (t.alts ?? []).filter((x) => x.id !== id);
+}
