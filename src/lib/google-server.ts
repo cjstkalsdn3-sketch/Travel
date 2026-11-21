@@ -20,6 +20,8 @@ export interface PlaceHit {
   lat: number;
   lng: number;
   placeId?: string;
+  /** 구글 장소 종류 (restaurant, cafe, lodging …) */
+  kind?: string;
 }
 
 export async function textSearch(req: Request, q: string, bias?: [number, number], radius = 30000): Promise<PlaceHit[]> {
@@ -27,10 +29,10 @@ export async function textSearch(req: Request, q: string, bias?: [number, number
   if (bias) body.locationBias = { circle: { center: { latitude: bias[0], longitude: bias[1] }, radius } };
   const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
-    headers: googleHeaders(req, 'places.id,places.displayName,places.formattedAddress,places.location'),
+    headers: googleHeaders(req, 'places.id,places.displayName,places.formattedAddress,places.location,places.primaryType'),
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`places ${r.status}: ${await r.text()}`);
-  const j = (await r.json()) as { places?: { id: string; displayName?: { text: string }; formattedAddress?: string; location: { latitude: number; longitude: number } }[] };
-  return (j.places ?? []).map((p) => ({ name: p.displayName?.text ?? '', addr: p.formattedAddress ?? '', lat: p.location.latitude, lng: p.location.longitude, placeId: p.id }));
+  const j = (await r.json()) as { places?: { id: string; displayName?: { text: string }; formattedAddress?: string; location: { latitude: number; longitude: number }; primaryType?: string }[] };
+  return (j.places ?? []).map((p) => ({ name: p.displayName?.text ?? '', addr: p.formattedAddress ?? '', lat: p.location.latitude, lng: p.location.longitude, placeId: p.id, kind: p.primaryType }));
 }
