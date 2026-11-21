@@ -1,5 +1,5 @@
 /* 우리 여행 서비스 워커: 인터넷이 없어도 앱이 열리게 */
-const VER = 'v1';
+const VER = 'v7';
 const PAGES = 'pages-' + VER;
 const STATIC = 'static-' + VER;
 const PRECACHE = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
@@ -48,7 +48,7 @@ self.addEventListener('fetch', (e) => {
   // 다른 사이트(Supabase, 구글 지도)와 서버 API는 건드리지 않음
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
 
-  if (url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/icons/')) {
+  if (url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/icons/') || url.pathname.startsWith('/bg/')) {
     e.respondWith(cacheFirst(req));
     return;
   }

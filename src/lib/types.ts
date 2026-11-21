@@ -28,6 +28,22 @@ export interface Geo {
   addr?: string;
 }
 
+/** 실제 날씨 (Open-Meteo). c = WMO 날씨 코드, t = 기온(°C), p = 강수 확률(%) */
+export interface WxNow {
+  c: number;
+  t: number;
+  p?: number;
+  /** 지난 시간의 기록이라 더 바뀌지 않음 */
+  done?: boolean;
+}
+export interface WxDay {
+  c: number;
+  hi: number;
+  lo: number;
+  p?: number;
+  done?: boolean;
+}
+
 export interface PlanItem {
   id: string;
   date: string;
@@ -44,6 +60,8 @@ export interface PlanItem {
   fixed?: boolean;
   /** 머무는 시간(분) */
   stay?: number;
+  /** 그 시간·장소의 날씨 */
+  wx?: WxNow;
 }
 
 export interface Expense {
@@ -56,6 +74,8 @@ export interface Expense {
   pay: PayMethod;
   split: Split;
   title: string;
+  /** 기록할 때의 환율(현지 1단위당 원). 없으면 여행의 현재 환율 */
+  rate?: number;
 }
 
 export interface CheckItem {
@@ -104,7 +124,16 @@ export interface Trip {
   budget: number;
   /** total local cash exchanged */
   cash: number;
+  /** (예전 예시 값, 더 쓰지 않음) */
   weather: Record<string, [Wx, number, number]> | null;
+  /** 날짜별 실제 날씨 */
+  wxd?: Record<string, WxDay>;
+  /** 날씨를 마지막으로 받아온 시각 */
+  wxAt?: string;
+  /** 환율을 자동으로 맞춤(기본). false면 직접 넣은 값 유지 */
+  rateAuto?: boolean;
+  /** 환율을 마지막으로 받아온 시각 */
+  rateAt?: string;
   plan: PlanItem[];
   exp: Expense[];
   book: Booking[];

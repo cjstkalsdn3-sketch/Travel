@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CatChips, ConfirmButton, Seg, SheetHead, useCopy, useUI } from './ui';
 import { PlaceField } from './maps';
 import { isMapsUrl, mapsEnabled, resolveLink } from '@/lib/maps';
 import { DEFAULT_STAY, isFixed, ordForInsert } from '@/lib/plan';
 import { CATS, COUNTRY, CUR, MODES } from '@/lib/constants';
+import { liveRate } from '@/lib/fx';
 import { signOut, update, updateTrip, useData, useSession } from '@/lib/store';
 import { starterChecklist } from '@/lib/sample';
 import type { Booking, Cat, CountryCode, CurCode, Expense, Geo, Mode, PayMethod, Payer, PlanItem, Split, Trip, Wish } from '@/lib/types';
@@ -50,6 +51,8 @@ export function ExpenseSheet({ trip, id, onSaved }: { trip: Trip; id?: string; o
   function save() {
     if (!a) return;
     const rec: Omit<Expense, 'id'> = { amt: a, cur, cat, payer, pay, split: payer === 'common' ? 'half' : split, title: title.trim(), date };
+    // 기록할 때의 환율을 함께 저장 (나중에 환율이 바뀌어도 이미 쓴 돈은 그대로)
+    if (cur !== 'KRW') rec.rate = e && e.cur === cur && e.rate ? e.rate : cur === trip.cur ? trip.rate : CUR[cur].rate;
     update((d) => {
       const t = d.trips.find((x) => x.id === trip.id)!;
       if (e) Object.assign(t.exp.find((x) => x.id === e.id)!, rec);
@@ -177,7 +180,10 @@ export function PlanSheet({
       const ord = moved ? ordForInsert(t, date, rec.time, pid) : p?.ord;
       if (pid) {
         const it = t.plan.find((x) => x.id === pid)!;
+        const geoChanged = JSON.stringify(it.geo ?? null) !== JSON.stringify(rec.geo ?? null);
         Object.assign(it, rec);
+        // 시간이나 장소가 바뀌면 날씨를 다시 받아옴
+        if (moved || geoChanged) delete it.wx;
         if (stay === '') delete it.stay;
         if (fixed === undefined) delete it.fixed;
         if (ord === undefined) delete it.ord;
@@ -492,7 +498,10 @@ export function TripSheet({ trip }: { trip?: Trip }) {
     const rec = { name: name.trim(), start: s, end: e, country, to: code, from: code ? 'ICN' : '', fromName: '인천', budget: digits(budget) || 2000000 };
     if (trip) {
       updateTrip(trip.id, (t) => {
-        if (t.cur !== cur) Object.assign(t, { cur, rate: CUR[cur].rate });
+        if (t.cur !== cur) {
+          Object.assign(t, { cur, rate: CUR[cur].rate });
+          delete t.rateAt;
+        }
         if (t.to !== code) t.toName = '';
         Object.assign(t, rec);
       });
@@ -577,6 +586,57 @@ export function BudgetSheet({ trip }: { trip: Trip }) {
           if (b) updateTrip(trip.id, (t) => (t.budget = b));
           close();
           toast('예산을 바꿨어요');
+        }}
+      >
+        저장
+      </button>
+    </>
+  );
+}
+
+export function RateSheet({ trip }: { trip: Trip }) {
+  const { close, toast } = useUI();
+  const C = CUR[trip.cur];
+  const [auto, setAuto] = useState(trip.rateAuto !== false);
+  const [v, setV] = useState(String(Math.round(trip.rate * C.unit * 100) / 100));
+  const [live, setLive] = useState<number | null>(null);
+  useEffect(() => {
+    liveRate(trip.cur).then(setLive);
+  }, [trip.cur]);
+  const n = parseFloat(v.replace(/,/g, ''));
+  return (
+    <>
+      <SheetHead title="환율" />
+      <Seg full value={auto ? 'auto' : 'manual'} onChange={(x) => setAuto(x === 'auto')} options={[['auto', '실시간 자동'], ['manual', '직접 입력']]} />
+      {auto ? (
+        <p className="sub" style={{ margin: 0 }}>
+          {live ? `지금 ${C.unit.toLocaleString('ko-KR')}${C.name} = ${Math.round(live * C.unit).toLocaleString('ko-KR')}원이에요. ` : '실시간 환율을 불러오고 있어요. '}
+          6시간마다 새로 받아와요. 이미 기록한 지출은 그때 환율 그대로예요.
+        </p>
+      ) : (
+        <div className="field">
+          <label htmlFor="rateIn">{C.unit.toLocaleString('ko-KR')}{C.name}에 몇 원? (환전소에서 받은 환율 등)</label>
+          <input className="inp num" id="rateIn" inputMode="decimal" value={v} onChange={(e) => setV(e.target.value.replace(/[^0-9.]/g, ''))} style={{ fontSize: 22, textAlign: 'center' }} autoComplete="off" />
+        </div>
+      )}
+      <button
+        className="primary"
+        disabled={!auto && !(n > 0)}
+        onClick={() => {
+          updateTrip(trip.id, (t) => {
+            if (auto) {
+              delete t.rateAuto;
+              if (live) {
+                t.rate = live;
+                t.rateAt = new Date().toISOString();
+              } else delete t.rateAt;
+            } else {
+              t.rateAuto = false;
+              t.rate = n / C.unit;
+            }
+          });
+          close();
+          toast('환율을 바꿨어요');
         }}
       >
         저장

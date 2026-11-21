@@ -39,8 +39,17 @@ export function daysOf(t: Pick<Trip, 'start' | 'end'>): string[] {
 export const krw = (n: number) => '₩' + Math.round(n).toLocaleString('ko-KR');
 export const fmt = (a: number, c: CurCode) =>
   CUR[c].sym + Number(a).toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: CUR[c].dec });
-export const toK = (e: Pick<Expense, 'amt' | 'cur'>, t: Trip) =>
-  e.cur === 'KRW' ? e.amt : e.amt * (e.cur === t.cur ? t.rate : CUR[e.cur].rate);
+/** 원화로. 기록할 때 환율이 있으면 그 값, 없으면 지금 환율 */
+export const toK = (e: Pick<Expense, 'amt' | 'cur'> & { rate?: number }, t: Trip) =>
+  e.cur === 'KRW' ? e.amt : e.amt * (e.rate ?? (e.cur === t.cur ? t.rate : CUR[e.cur].rate));
+/** '방금', '3시간 전' 처럼 */
+export const ago = (isoStr: string) => {
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(isoStr)) / 60000));
+  if (m < 2) return '방금';
+  if (m < 60) return `${m}분 전`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h}시간 전` : `${Math.round(h / 24)}일 전`;
+};
 export const rateLabel = (t: Trip) => {
   const C = CUR[t.cur];
   return `${C.unit.toLocaleString('ko-KR')}${C.name} = ${Math.round(t.rate * C.unit).toLocaleString('ko-KR')}원`;

@@ -118,7 +118,7 @@ export function DayMap({ items }: { items: PlanItem[] }) {
         drawn.current = [];
         if (!pts.length) return;
         const bounds = new g.LatLngBounds();
-        const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#2A57DE';
+        const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#C93A6E';
         pts.forEach(({ p, i }) => {
           const pos = { lat: p.geo!.lat, lng: p.geo!.lng };
           bounds.extend(pos);
