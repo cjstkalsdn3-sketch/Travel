@@ -188,7 +188,7 @@ export function WishTab() {
       </div>
       <button className="import-row" onClick={() => open(<ImportSheet trip={t} />)}>
         <Icon name="map" />
-        <span><b>구글지도에서 가져오기</b><small>저장해둔 장소(핀)를 한 번에 옮겨와요</small></span>
+        <span><b>구글지도에서 가져오기</b><small>구글지도에서 목록을 공유하면 한 번에 들어와요</small></span>
         <Icon name="chev" />
       </button>
       <Seg full value={f} onChange={setF} options={[['all', '전체'], ['todo', '아직'], ['in', '일정에 넣음']]} />

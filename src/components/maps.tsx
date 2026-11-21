@@ -367,12 +367,33 @@ export function ImportSheet({ trip }: { trip: Trip }) {
   const [err, setErr] = useState('');
   const center = COUNTRY[trip.country].center;
 
-  async function onFile(f?: File) {
-    if (!f) return;
+  async function onFile(files?: FileList | null) {
+    if (!files?.length) return;
     setErr('');
     try {
-      const list = readFile(await f.text(), f.name);
-      if (!list.length) return setErr('이 파일에서 장소를 찾지 못했어요. "저장됨" 목록의 CSV나 "Saved Places.json"을 골라주세요.');
+      const texts: [string, string][] = [];
+      for (const f of Array.from(files)) {
+        if (/\.zip$/i.test(f.name)) {
+          // 테이크아웃 압축 파일을 그대로 받아서 안에 있는 지도 목록만 꺼내요
+          const { unzipSync, strFromU8 } = await import('fflate');
+          const all = unzipSync(new Uint8Array(await f.arrayBuffer()), { filter: (e) => /\.(csv|json|geojson)$/i.test(e.name) && !/(^|\/)\./.test(e.name) });
+          for (const [name, u8] of Object.entries(all)) {
+            const t = strFromU8(u8).replace(/^\uFEFF/, '');
+            // 저장 목록 CSV(Title 열)와 지도 GeoJSON만 골라요. 다른 서비스 파일은 건너뛰어요
+            if (/\.csv$/i.test(name) ? /^\s*"?(title|제목)/i.test(t) : t.includes('"features"')) texts.push([t, name]);
+          }
+        } else texts.push([await f.text(), f.name]);
+      }
+      const byName = new Map<string, Cand>();
+      for (const [t, name] of texts) {
+        let got: Omit<Cand, 'on'>[] = [];
+        try {
+          got = readFile(t, name);
+        } catch {}
+        for (const c of got) if (!byName.has(c.name)) byName.set(c.name, { ...c, on: false });
+      }
+      const list = [...byName.values()];
+      if (!list.length) return setErr('여기서 장소를 찾지 못했어요. 테이크아웃 압축 파일(.zip)이나 "저장됨" 목록 CSV를 골라주세요.');
       const seen = new Set(trip.wish.map((w) => w.title));
       setCands(list.map((c) => ({ ...c, on: !seen.has(c.name) && (!c.geo || km(center, c.geo) < 300) })));
     } catch {
@@ -408,17 +429,28 @@ export function ImportSheet({ trip }: { trip: Trip }) {
       <SheetHead title="구글지도 저장 장소 가져오기" />
       {!cands ? (
         <>
-          <ol className="howto">
-            <li><a href="https://takeout.google.com/" target="_blank" rel="noopener noreferrer">takeout.google.com</a> 에서 &quot;선택 해제&quot; 후 <b>저장됨</b>(목록)과 <b>지도(내 장소)</b>만 체크</li>
-            <li>내보내기 → 메일로 온 압축 파일 받아서 풀기</li>
-            <li>목록별 <b>.csv</b> 파일이나 <b>Saved Places.json</b>을 아래에 올리기</li>
-          </ol>
-          <label className="dropzone">
-            <input type="file" accept=".csv,.json,.geojson,text/csv,application/json" onChange={(e) => onFile(e.target.files?.[0])} />
-            <b>파일 고르기</b>CSV 또는 JSON
-          </label>
+          <div className="share-how">
+            <b>제일 빠른 방법 · 공유 한 번</b>
+            <ol>
+              <li>구글지도 앱 → <b>저장됨</b> → 가져올 목록 열기</li>
+              <li><b>공유</b> → <b>우리 여행</b> 누르기</li>
+            </ol>
+            <p>목록 안 장소가 전부 담아둔 곳으로 들어와요. 장소 하나도 같은 방법으로 보낼 수 있어요.</p>
+          </div>
+          <details className="more">
+            <summary>
+              목록 전체를 파일로 옮기기 <span>›</span>
+            </summary>
+            <ol className="howto">
+              <li><a href="https://takeout.google.com/settings/takeout/custom/maps,saved" target="_blank" rel="noopener noreferrer">구글 테이크아웃</a>에서 내보내기</li>
+              <li>메일로 온 <b>.zip 파일을 그대로</b> 아래에 올리기 (압축 안 풀어도 돼요)</li>
+            </ol>
+            <label className="dropzone">
+              <input type="file" multiple accept=".zip,.csv,.json,.geojson,application/zip,text/csv,application/json" onChange={(e) => onFile(e.target.files)} />
+              <b>파일 고르기</b>ZIP · CSV · JSON
+            </label>
+          </details>
           {err && <p className="err">{err}</p>}
-          <p className="note">하나씩 넣을 땐 &quot;+ 장소&quot;에서 구글지도 공유 링크를 붙여넣는 게 더 빨라요.</p>
         </>
       ) : (
         <>
