@@ -3,15 +3,16 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './Icon';
 import { ccStyle, Seg, useCopy, useUI } from './ui';
-import { BookingSheet, BookingView, BudgetSheet, CashSheet, ExpenseSheet, PlanSheet, WishSheet } from './sheets';
+import { BookingSheet, BookingView, BudgetSheet, CashSheet, RateSheet, ExpenseSheet, PlanSheet, WishSheet } from './sheets';
 import { useCurrentTrip } from './TripShell';
+import { WxBadge, WxDayPill } from './Wx';
 import { DayMap, ImportSheet, ReorderSheet, RouteSheet } from './maps';
 import { dayItems } from '@/lib/plan';
 import { mapsEnabled } from '@/lib/maps';
-import { CATS, CONSULATE_CALL, COUNTRY, MODES, PAYS, WD, WXL } from '@/lib/constants';
+import { CATS, CONSULATE_CALL, COUNTRY, MODES, PAYS, WD } from '@/lib/constants';
 import { updateTrip, useData } from '@/lib/store';
 import type { Cat, Geo, PayMethod, Who } from '@/lib/types';
-import { daysOf, dday, dur, fmt, host, krw, localTime, mapUrl, mdw, mins, pd, rateLabel, toK, today, totals, uid } from '@/lib/utils';
+import { daysOf, dday, dur, fmt, host, krw, localTime, mapUrl, mdw, mins, pd, rateLabel, toK, today, totals, uid, ago } from '@/lib/utils';
 
 /** 위치가 있으면 그 장소로, 없으면 이름 검색으로 */
 const placeUrl = (q: string, g?: Geo | null) =>
@@ -30,7 +31,8 @@ export function PlanTab() {
   const items = dayItems(t, date);
   const [showMap, setShowMap] = useState(false);
   const dayK = t.exp.filter((e) => e.date === date).reduce((s, e) => s + toK(e, t), 0);
-  const wx = t.weather?.[date];
+  const wx = t.wxd?.[date];
+  const far = !wx && pd(date).getTime() - pd(today()).getTime() > 15 * 864e5;
   const goTo = (d: string) => setDay(Math.max(0, ds.indexOf(d)));
 
   return (
@@ -50,11 +52,7 @@ export function PlanTab() {
           <h2>Day {i + 1} · {mdw(date)}</h2>
           <p className="ds">{items.length}개 일정{dayK ? ' · 이날 지출 ' + krw(dayK) : ''}</p>
         </div>
-        {wx && (
-          <span className="wx">
-            <Icon name={wx[0]} className={wx[0]} />{WXL[wx[0]]} <b>{wx[1]}°/{wx[2]}°</b>
-          </span>
-        )}
+        <WxDayPill w={wx} far={far} />
       </div>
       {items.length > 0 && (
         <div className="day-acts">
@@ -107,6 +105,7 @@ export function PlanTab() {
                   <time>{p.time}</time>
                   <span className="dot"><Icon name={p.type} /></span>
                   <div className="ev-card">
+                    {p.wx && <WxBadge w={p.wx} />}
                     <b>{p.title}</b>
                     {p.note && <p>{p.note}</p>}
                     {(p.place || bk) && (
@@ -133,7 +132,6 @@ export function PlanTab() {
         <div className="empty"><b>아직 일정이 없어요</b>가볼 곳에서 골라 넣거나 직접 추가해보세요.</div>
       )}
       <button className="add-row" onClick={() => open(<PlanSheet trip={t} day={date} onSaved={goTo} />)}>+ 이날 일정 추가</button>
-      {wx && <p className="note">날씨는 예시 값이에요. 다음 단계에서 실제 예보로 바뀌어요.</p>}
     </>
   );
 }
@@ -227,6 +225,7 @@ export function MoneyTab() {
       <section className="card">
         <p className="big-label">{rem >= 0 ? '남은 예산' : '예산 초과'}</p>
         <p className={'big' + (rem < 0 ? ' over' : '')}>{krw(Math.abs(rem))}</p>
+        {t.cur !== 'KRW' && rem > 0 && <p className="big-sub num">≈ {fmt(Math.floor(rem / t.rate), t.cur)} <span>지금 환율로</span></p>}
         <p className="sub">
           총예산 {krw(t.budget)} 중 {krw(T.spent)} 사용 · <button className="link-btn" onClick={() => open(<BudgetSheet trip={t} />)}>예산 바꾸기</button>
         </p>
@@ -245,7 +244,10 @@ export function MoneyTab() {
           <div className="hint"><Icon name="info" /><span>남은 {left}일 동안 하루 <b className="num">{krw(rem / left)}</b>씩 쓰면 딱 맞아요.</span></div>
         ) : null}
       </section>
-      <div className="fx"><span>환율 <b>{rateLabel(t)}</b></span><span>기본 환율</span></div>
+      <button className="fx" onClick={() => open(<RateSheet trip={t} />)}>
+        <span>환율 <b>{rateLabel(t)}</b></span>
+        <span>{t.cur === 'KRW' ? '' : t.rateAuto === false ? '직접 입력 · 바꾸기' : t.rateAt ? `실시간 · ${ago(t.rateAt)}` : '기본값 · 불러오는 중'}</span>
+      </button>
 
       <section className="sec">
         <div className="sec-h"><h2>결제수단 · 현금</h2></div>

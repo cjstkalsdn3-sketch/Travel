@@ -14,7 +14,7 @@ export function sampleTrip(): Trip {
   return {
     id: uid(), name: '(예시) 도쿄 크리스마스', country: 'JP', from: 'ICN', fromName: '인천', to: 'NRT', toName: '도쿄 나리타',
     start: '2026-12-24', end: '2026-12-28', cur: 'JPY', rate: CUR.JPY.rate, budget: 2500000, cash: 30000,
-    weather: { '2026-12-24': ['sun', 10, 2], '2026-12-25': ['sun', 11, 3], '2026-12-26': ['cloud', 9, 3], '2026-12-27': ['cloud', 6, -1], '2026-12-28': ['rain', 9, 4] },
+    weather: null,
     plan: [
       P('2026-12-24', '07:30', 'move', '인천공항 2터미널 도착', '대한항공 체크인 카운터 E'),
       P('2026-12-24', '10:05', 'flight', 'KE703 인천 → 나리타', '12:30 도착 · 좌석 32A, 32B'),

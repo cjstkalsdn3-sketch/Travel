@@ -1,8 +1,10 @@
 'use client';
 
+import { syncRate } from '@/lib/fx';
+import { syncWeather } from '@/lib/weather';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useEffect } from 'react';
 import { Icon } from './Icon';
 import { useUI } from './ui';
 import { ExpenseSheet, TripSheet } from './sheets';
@@ -30,6 +32,13 @@ export function TripShell({ children }: { children: React.ReactNode }) {
   const { open } = useUI();
   const base = `/trips/${id}`;
   const tab = path.slice(base.length + 1);
+
+  // 실제 날씨·환율 받아오기 (각 모듈이 너무 자주 받지 않게 알아서 거름)
+  useEffect(() => {
+    if (!hydrated || !t) return;
+    syncWeather(t);
+    syncRate(t);
+  }, [hydrated, t]);
 
   if (!hydrated) return <main className="shell" />;
   if (!t)
