@@ -1,10 +1,19 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Icon } from './Icon';
 import { CATS } from '@/lib/constants';
 import type { Cat } from '@/lib/types';
 import { setPersistErrorHandler } from '@/lib/store';
+
+/* ---------- 넓은 화면(PC) 여부 ---------- */
+const WIDE_Q = '(min-width: 1024px)';
+const subWide = (cb: () => void) => {
+  const m = window.matchMedia(WIDE_Q);
+  m.addEventListener('change', cb);
+  return () => m.removeEventListener('change', cb);
+};
+export const useWide = () => useSyncExternalStore(subWide, () => window.matchMedia(WIDE_Q).matches, () => false);
 
 /* ---------- Sheet + Toast provider ---------- */
 export interface ToastAction {

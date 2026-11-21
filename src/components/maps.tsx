@@ -100,37 +100,49 @@ export function PlaceField({
 }
 
 /* ================= 하루 지도 ================= */
-export function DayMap({ items }: { items: PlanItem[] }) {
+export function DayMap({ items, big, focus, hot, onPick }: { items: PlanItem[]; big?: boolean; focus?: string | null; hot?: string | null; onPick?: (id: string) => void }) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<google.maps.Map | null>(null);
   const drawn = useRef<(google.maps.Marker | google.maps.Polyline)[]>([]);
+  const marks = useRef(new Map<string, { m: google.maps.Marker; n: number }>());
+  const whole = useRef<google.maps.LatLngBounds | null>(null);
+  const pickRef = useRef(onPick);
+  const [ready, setReady] = useState(0);
   const [err, setErr] = useState('');
   const pts = items.map((p, i) => ({ p, i })).filter((x) => x.p.geo);
   const sig = pts.map((x) => `${x.p.id}:${x.i}:${x.p.geo!.lat},${x.p.geo!.lng}`).join('|');
+
+  useEffect(() => {
+    pickRef.current = onPick;
+  }, [onPick]);
 
   useEffect(() => {
     let dead = false;
     loadMaps()
       .then((g) => {
         if (dead || !el.current) return;
-        if (!map.current) map.current = new g.Map(el.current, { disableDefaultUI: true, zoomControl: true, clickableIcons: false, gestureHandling: 'cooperative' });
+        if (!map.current)
+          map.current = new g.Map(el.current, { disableDefaultUI: true, zoomControl: true, clickableIcons: false, gestureHandling: big ? 'greedy' : 'cooperative' });
         drawn.current.forEach((d) => d.setMap(null));
         drawn.current = [];
+        marks.current.clear();
+        whole.current = null;
         if (!pts.length) return;
         const bounds = new g.LatLngBounds();
         const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#C93A6E';
         pts.forEach(({ p, i }) => {
           const pos = { lat: p.geo!.lat, lng: p.geo!.lng };
           bounds.extend(pos);
-          drawn.current.push(
-            new g.Marker({
-              map: map.current!,
-              position: pos,
-              title: p.title,
-              label: { text: String(i + 1), color: '#fff', fontWeight: '700', fontSize: '12px' },
-              icon: { path: g.SymbolPath.CIRCLE, scale: 12, fillColor: accent, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
-            }),
-          );
+          const m = new g.Marker({
+            map: map.current!,
+            position: pos,
+            title: p.title,
+            label: { text: String(i + 1), color: '#fff', fontWeight: '700', fontSize: '12px' },
+            icon: { path: g.SymbolPath.CIRCLE, scale: 12, fillColor: accent, fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
+          });
+          m.addListener('click', () => pickRef.current?.(p.id));
+          marks.current.set(p.id, { m, n: i + 1 });
+          drawn.current.push(m);
         });
         drawn.current.push(
           new g.Polyline({
@@ -140,10 +152,12 @@ export function DayMap({ items }: { items: PlanItem[] }) {
             icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, strokeColor: accent, scale: 3 }, offset: '0', repeat: '12px' }],
           }),
         );
+        whole.current = bounds;
         if (pts.length === 1) {
           map.current.setCenter(bounds.getCenter());
           map.current.setZoom(15);
-        } else map.current.fitBounds(bounds, 40);
+        } else map.current.fitBounds(bounds, big ? 72 : 40);
+        setReady((n) => n + 1);
       })
       .catch((e: Error) => setErr(e.message));
     return () => {
@@ -152,9 +166,41 @@ export function DayMap({ items }: { items: PlanItem[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
 
-  if (!pts.length) return <div className="map-empty">장소를 검색해서 고른 일정이 지도에 나와요.</div>;
+  // 고른 일정으로 지도 옮기기 (없으면 하루 전체가 보이게)
+  useEffect(() => {
+    const mp = map.current;
+    if (!mp || !ready) return;
+    const f = focus ? marks.current.get(focus) : null;
+    if (f) {
+      mp.panTo(f.m.getPosition()!);
+      if ((mp.getZoom() ?? 0) < 15) mp.setZoom(15);
+    } else if (whole.current && pts.length > 1) mp.fitBounds(whole.current, big ? 72 : 40);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, ready]);
+
+  // 고른 것·가리킨 것은 크게
+  useEffect(() => {
+    if (!ready) return;
+    const g = window.google?.maps;
+    if (!g) return;
+    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#C93A6E';
+    for (const [id, { m, n }] of marks.current) {
+      const on = id === focus || id === hot;
+      m.setIcon({ path: g.SymbolPath.CIRCLE, scale: on ? 17 : 12, fillColor: accent, fillOpacity: focus && !on ? 0.55 : 1, strokeColor: '#fff', strokeWeight: on ? 3 : 2 });
+      m.setLabel({ text: String(n), color: '#fff', fontWeight: '700', fontSize: on ? '14px' : '12px' });
+      m.setZIndex(on ? 10 : 1);
+    }
+  }, [focus, hot, ready]);
+
+  if (!pts.length)
+    return (
+      <div className={'map-empty' + (big ? ' big' : '')}>
+        {big && <Icon name="map" />}
+        장소를 검색해서 고른 일정이 지도에 나와요.
+      </div>
+    );
   return (
-    <div className="daymap-wrap">
+    <div className={'daymap-wrap' + (big ? ' big' : '')}>
       <div ref={el} className="daymap" role="img" aria-label="이날 일정 지도" />
       {err && <p className="err">{err}</p>}
       {pts.length < items.length && <p className="note">위치가 없는 일정 {items.length - pts.length}개는 지도에 안 보여요.</p>}

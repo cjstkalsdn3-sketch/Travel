@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Icon } from './Icon';
-import { ccStyle, Seg, useCopy, useUI } from './ui';
+import { ccStyle, Seg, useCopy, useUI, useWide } from './ui';
 import { BookingSheet, BookingView, BudgetSheet, CashSheet, RateSheet, ExpenseSheet, PlanSheet, WishSheet } from './sheets';
 import { useCurrentTrip } from './TripShell';
 import { WxBadge, WxDayPill } from './Wx';
@@ -31,10 +31,24 @@ export function PlanTab() {
   const date = ds[i];
   const items = dayItems(t, date);
   const [showMap, setShowMap] = useState(false);
+  const wide = useWide();
+  const bigMap = wide && mapsEnabled;
+  const [sel, setSel] = useState<string | null>(null);
+  const [hot, setHot] = useState<string | null>(null);
+  const focus = sel && items.some((p) => p.id === sel) ? sel : null;
   const dayK = t.exp.filter((e) => e.date === date).reduce((s, e) => s + toK(e, t), 0);
   const wx = t.wxd?.[date];
   const far = !wx && pd(date).getTime() - pd(today()).getTime() > 15 * 864e5;
   const goTo = (d: string) => setDay(Math.max(0, ds.indexOf(d)));
+  // 넓은 화면: 처음 누르면 지도에서 보여주고, 한 번 더 누르면 자세히
+  function tapEv(id: string) {
+    if (bigMap && focus !== id) return setSel(id);
+    open(<PlanSheet trip={t} id={id} onSaved={goTo} />);
+  }
+  function pickOnMap(id: string) {
+    setSel(id);
+    document.querySelector(`li.ev[data-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
   function onDrop(src: DragSrc, over: Over) {
     if (!over) return;
@@ -57,12 +71,13 @@ export function PlanTab() {
   const { drag, over, press, layer } = useDragBoard({ onDrop, onDayHover: goTo });
 
   return (
-    <>
+    <div className={'plan' + (bigMap ? ' wide' : '')}>
+      <div className="plan-col">
       <div className="days" role="tablist" aria-label="날짜">
         {ds.map((d, k) => {
           const x = pd(d);
           return (
-            <button key={d} data-date={d} role="tab" aria-selected={k === i} className={'day' + (k === i ? ' on' : '') + (d === today() ? ' today' : '')} onClick={() => setDay(k)}>
+            <button key={d} data-date={d} role="tab" aria-selected={k === i} className={'day' + (k === i ? ' on' : '') + (d === today() ? ' today' : '')} onClick={() => { setDay(k); setSel(null); }}>
               <small>DAY {k + 1}</small><b>{x.getDate()}</b><small>{WD[x.getDay()]}</small>
             </button>
           );
@@ -77,7 +92,7 @@ export function PlanTab() {
       </div>
       {items.length > 0 && (
         <div className="day-acts">
-          {mapsEnabled && (
+          {mapsEnabled && !bigMap && (
             <button className={'chip-btn' + (showMap ? ' on' : '')} aria-pressed={showMap} onClick={() => setShowMap(!showMap)}>
               <Icon name="map" />지도
             </button>
@@ -94,7 +109,7 @@ export function PlanTab() {
           )}
         </div>
       )}
-      {showMap && mapsEnabled && <DayMap items={items} />}
+      {showMap && mapsEnabled && !bigMap && <DayMap items={items} />}
       {items.length ? (
         <ol className={'tl' + (drag ? ' is-drag' : '')} data-drop="tl">
           {items.map((p, k) => {
@@ -123,11 +138,13 @@ export function PlanTab() {
             return (
               <FragmentLi key={p.id} leg={leg}>
                 <li
-                  className={'ev' + (drag?.id === p.id ? ' lifted' : '')}
+                  className={'ev' + (drag?.id === p.id ? ' lifted' : '') + (focus === p.id ? ' sel' : '')}
                   data-id={p.id}
                   style={ccStyle(p.type)}
                   {...press({ kind: 'plan', id: p.id, title: p.title, type: p.type })}
-                  onClick={() => open(<PlanSheet trip={t} id={p.id} onSaved={goTo} />)}
+                  onClick={() => tapEv(p.id)}
+                  onMouseEnter={bigMap ? () => setHot(p.id) : undefined}
+                  onMouseLeave={bigMap ? () => setHot(null) : undefined}
                 >
                   <time>{p.time}</time>
                   <span className="dot"><Icon name={p.type} /></span>
@@ -135,6 +152,7 @@ export function PlanTab() {
                     {p.wx && <WxBadge w={p.wx} />}
                     <b>{p.title}</b>
                     {p.note && <p>{p.note}</p>}
+                    {focus === p.id && <span className="ev-more">한 번 더 누르면 자세히 <Icon name="chev" /></span>}
                     {(p.place || bk) && (
                       <div className="ev-meta" onClick={(e) => e.stopPropagation()}>
                         {bk && (
@@ -160,8 +178,19 @@ export function PlanTab() {
       )}
       <button className="add-row" onClick={() => open(<PlanSheet trip={t} day={date} onSaved={goTo} />)}>+ 이날 일정 추가</button>
       <Tray trip={t} date={date} dragging={drag} overTray={over?.zone === 'tray'} press={press} />
+      </div>
+      {bigMap && (
+        <aside className="plan-map" key={date}>
+          <DayMap items={items} big focus={focus} hot={hot} onPick={pickOnMap} />
+          {focus && items.find((x) => x.id === focus)?.geo && (
+            <button className="map-all" onClick={() => setSel(null)}>
+              <Icon name="map" />하루 전체 보기
+            </button>
+          )}
+        </aside>
+      )}
       {layer}
-    </>
+    </div>
   );
 }
 function FragmentLi({ leg, children }: { leg: React.ReactNode; children: React.ReactNode }) {
@@ -179,6 +208,7 @@ export function WishTab() {
   const inCnt = t.wish.filter((w) => planOf(w.planId)).length;
   return (
     <>
+      <div className="wish-head">
       <div className="wishtop">
         <div>
           <h2 className="h2">가고 싶은 곳 {t.wish.length}곳</h2>
@@ -191,9 +221,10 @@ export function WishTab() {
         <span><b>구글지도에서 가져오기</b><small>구글지도에서 목록을 공유하면 한 번에 들어와요</small></span>
         <Icon name="chev" />
       </button>
+      </div>
       <Seg full value={f} onChange={setF} options={[['all', '전체'], ['todo', '아직'], ['in', '일정에 넣음']]} />
       {list.length ? (
-        <div className="list">
+        <div className="list wish-list">
           {list.map((w) => {
             const p = planOf(w.planId);
             return (
@@ -250,7 +281,8 @@ export function MoneyTab() {
   const groups = ['pre', ...ds].map((d) => [d, t.exp.filter((e) => e.date === d)] as const).filter(([, es]) => es.length);
 
   return (
-    <>
+    <div className="pg">
+      <div className="pg-a">
       <section className="card">
         <p className="big-label">{rem >= 0 ? '남은 예산' : '예산 초과'}</p>
         <p className={'big' + (rem < 0 ? ' over' : '')}>{krw(Math.abs(rem))}</p>
@@ -336,6 +368,8 @@ export function MoneyTab() {
         </section>
       )}
 
+      </div>
+      <div className="pg-b">
       <section className="sec">
         <div className="sec-h"><h2>지출 내역</h2><small>{t.exp.length}건</small></div>
         {groups.length ? (
@@ -360,7 +394,8 @@ export function MoneyTab() {
           <div className="empty"><b>아직 지출이 없어요</b>오른쪽 아래 버튼으로 3초 만에 기록해요.</div>
         )}
       </section>
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -379,6 +414,7 @@ export function CheckTab() {
 
   return (
     <>
+      <div className="ck-top">
       <section className="card prog">
         <svg className="ring" viewBox="0 0 54 54" aria-hidden="true">
           <circle className="bg" cx="27" cy="27" r="24" />
@@ -404,6 +440,8 @@ export function CheckTab() {
         </select>
         <button className="primary" style={{ width: 'auto', padding: '0 16px' }} aria-label="추가"><Icon name="plus" size={20} /></button>
       </form>
+      </div>
+      <div className="ck-groups">
       {groups.map((g) => {
         const its = t.check.filter((c) => c.group === g);
         return (
@@ -423,6 +461,7 @@ export function CheckTab() {
           </section>
         );
       })}
+      </div>
     </>
   );
 }
@@ -446,7 +485,8 @@ export function InfoTab() {
   }, [c.tzid]);
   const bs = [...t.book].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   return (
-    <>
+    <div className="pg">
+      <div className="pg-a">
       <section className="sec">
         <div className="sec-h"><h2>예약 보관함</h2><small>{bs.length}건</small></div>
         {bs.length ? (
@@ -465,6 +505,8 @@ export function InfoTab() {
         <button className="add-row" onClick={() => open(<BookingSheet trip={t} />)}>+ 예약 추가</button>
       </section>
 
+      </div>
+      <div className="pg-b">
       <section className="sec">
         <div className="sec-h"><h2>{c.name} 현지 정보</h2></div>
         <div className="card info">
@@ -495,6 +537,7 @@ export function InfoTab() {
         <span className="cat-ic"><Icon name="offline" /></span>
         <div><b>오프라인 보기</b><p>다음 단계에서 이 여행의 일정, 예약번호, 바우처를 폰에 저장해서 비행기 모드에서도 열리게 만들어요.</p></div>
       </section>
-    </>
+      </div>
+    </div>
   );
 }
