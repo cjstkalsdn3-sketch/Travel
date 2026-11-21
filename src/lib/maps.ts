@@ -17,6 +17,7 @@ export interface PlaceHit {
   lat: number;
   lng: number;
   placeId?: string;
+  kind?: string;
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -33,8 +34,18 @@ export function searchPlaces(q: string, bias?: [number, number]): Promise<PlaceH
 
 /** 구글지도 공유 링크 → 장소 */
 export function resolveLink(url: string): Promise<PlaceHit | null> {
-  return post<{ place: PlaceHit | null }>('/api/maps/resolve', { url }).then((r) => r.place);
+  return post<{ place: PlaceHit | null; list?: PlaceHit[] }>('/api/maps/resolve', { url }).then((r) => r.place ?? r.list?.[0] ?? null);
 }
+
+/** 장소 링크든 저장 목록 링크든 → 장소들 */
+export function resolveMany(url: string): Promise<{ places: PlaceHit[]; list: boolean }> {
+  return post<{ place: PlaceHit | null; list?: PlaceHit[] }>('/api/maps/resolve', { url }).then((r) =>
+    r.list ? { places: r.list, list: true } : { places: r.place ? [r.place] : [], list: false },
+  );
+}
+
+/** 공유로 받은 글에서 구글지도 링크 찾기 */
+export const findMapsUrl = (s: string) => s.match(/https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|(?:www\.)?google\.[a-z.]+\/maps|maps\.google\.[a-z.]+)\S*/i)?.[0] ?? null;
 
 export interface LegTime {
   walk: number | null;

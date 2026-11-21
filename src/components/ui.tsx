@@ -7,10 +7,14 @@ import type { Cat } from '@/lib/types';
 import { setPersistErrorHandler } from '@/lib/store';
 
 /* ---------- Sheet + Toast provider ---------- */
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
 interface UI {
   open: (node: React.ReactNode) => void;
   close: () => void;
-  toast: (msg: string) => void;
+  toast: (msg: string, action?: ToastAction) => void;
 }
 const Ctx = createContext<UI | null>(null);
 export const useUI = () => {
@@ -21,13 +25,13 @@ export const useUI = () => {
 
 export function UIProvider({ children }: { children: React.ReactNode }) {
   const [sheet, setSheet] = useState<React.ReactNode>(null);
-  const [msg, setMsg] = useState<{ text: string; key: number } | null>(null);
+  const [msg, setMsg] = useState<{ text: string; key: number; action?: ToastAction } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const toast = useCallback((text: string) => {
-    setMsg({ text, key: Date.now() });
+  const toast = useCallback((text: string, action?: ToastAction) => {
+    setMsg({ text, key: Date.now(), action });
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setMsg(null), 1800);
+    timer.current = setTimeout(() => setMsg(null), action ? 5000 : 1800);
   }, []);
   const open = useCallback((node: React.ReactNode) => setSheet(node), []);
   const close = useCallback(() => setSheet(null), []);
@@ -56,8 +60,18 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
         </div>
       )}
       {msg && (
-        <div className="toast" key={msg.key} role="status">
+        <div className={'toast' + (msg.action ? ' has-act' : '')} key={msg.key} role="status">
           {msg.text}
+          {msg.action && (
+            <button
+              onClick={() => {
+                msg.action!.run();
+                setMsg(null);
+              }}
+            >
+              {msg.action.label}
+            </button>
+          )}
         </div>
       )}
     </Ctx.Provider>

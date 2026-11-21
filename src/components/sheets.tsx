@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { CatChips, ConfirmButton, Seg, SheetHead, useCopy, useUI } from './ui';
 import { PlaceField } from './maps';
 import { isMapsUrl, mapsEnabled, resolveLink } from '@/lib/maps';
-import { DEFAULT_STAY, isFixed, ordForInsert } from '@/lib/plan';
+import { DEFAULT_STAY, isFixed, ordForInsert, unplan } from '@/lib/plan';
 import { CATS, COUNTRY, CUR, MODES } from '@/lib/constants';
 import { liveRate } from '@/lib/fx';
 import { signOut, update, updateTrip, useData, useSession } from '@/lib/store';
@@ -263,6 +263,18 @@ export function PlanSheet({
         <input className="inp" id="plNote" placeholder="준비할 것, 꼭 할 것" value={note} onChange={(e) => setNote(e.target.value)} autoComplete="off" />
       </div>
       <button className="primary" onClick={save}>{p ? '저장' : '추가하기'}</button>
+      {p && p.type !== 'flight' && (
+        <button
+          className="ghost-btn"
+          onClick={() => {
+            updateTrip(trip.id, (t) => unplan(t, p.id));
+            close();
+            toast('일정에서 빼서 담아뒀어요');
+          }}
+        >
+          일정에서 빼서 담아두기
+        </button>
+      )}
       {p && (
         <ConfirmButton
           label="이 일정 삭제"

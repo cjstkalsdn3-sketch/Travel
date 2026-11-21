@@ -7,7 +7,8 @@ import { BookingSheet, BookingView, BudgetSheet, CashSheet, RateSheet, ExpenseSh
 import { useCurrentTrip } from './TripShell';
 import { WxBadge, WxDayPill } from './Wx';
 import { DayMap, ImportSheet, ReorderSheet, RouteSheet } from './maps';
-import { dayItems } from '@/lib/plan';
+import { snapshot, Tray, useDragBoard, type DragSrc, type Over } from './Tray';
+import { dayItems, movePlan, placeWish, unplan } from '@/lib/plan';
 import { mapsEnabled } from '@/lib/maps';
 import { CATS, CONSULATE_CALL, COUNTRY, MODES, PAYS, WD } from '@/lib/constants';
 import { updateTrip, useData } from '@/lib/store';
@@ -23,7 +24,7 @@ const MODE_ICON: Record<string, string> = { subway: 'move', walk: 'walk', bus: '
 /* ================= 일정 ================= */
 export function PlanTab() {
   const t = useCurrentTrip();
-  const { open } = useUI();
+  const { open, toast } = useUI();
   const ds = daysOf(t);
   const [day, setDay] = useState(() => Math.max(0, ds.indexOf(today())));
   const i = Math.min(day, ds.length - 1);
@@ -35,13 +36,33 @@ export function PlanTab() {
   const far = !wx && pd(date).getTime() - pd(today()).getTime() > 15 * 864e5;
   const goTo = (d: string) => setDay(Math.max(0, ds.indexOf(d)));
 
+  function onDrop(src: DragSrc, over: Over) {
+    if (!over) return;
+    const undo = snapshot(t);
+    const undoAct = { label: '되돌리기', run: undo };
+    if (over.zone === 'tray') {
+      if (src.kind !== 'plan') return;
+      updateTrip(t.id, (x) => unplan(x, src.id));
+      return toast('일정에서 빼서 담아뒀어요', undoAct);
+    }
+    let time = '';
+    if (src.kind === 'wish') {
+      updateTrip(t.id, (x) => void (time = placeWish(x, src.id, date, over.idx)?.time ?? ''));
+      toast(`Day ${i + 1} ${time}에 넣었어요`, undoAct);
+    } else {
+      updateTrip(t.id, (x) => movePlan(x, src.id, date, over.idx));
+      toast('옮겼어요', undoAct);
+    }
+  }
+  const { drag, over, press, layer } = useDragBoard({ onDrop, onDayHover: goTo });
+
   return (
     <>
       <div className="days" role="tablist" aria-label="날짜">
         {ds.map((d, k) => {
           const x = pd(d);
           return (
-            <button key={d} role="tab" aria-selected={k === i} className={'day' + (k === i ? ' on' : '') + (d === today() ? ' today' : '')} onClick={() => setDay(k)}>
+            <button key={d} data-date={d} role="tab" aria-selected={k === i} className={'day' + (k === i ? ' on' : '') + (d === today() ? ' today' : '')} onClick={() => setDay(k)}>
               <small>DAY {k + 1}</small><b>{x.getDate()}</b><small>{WD[x.getDay()]}</small>
             </button>
           );
@@ -75,7 +96,7 @@ export function PlanTab() {
       )}
       {showMap && mapsEnabled && <DayMap items={items} />}
       {items.length ? (
-        <ol className="tl">
+        <ol className={'tl' + (drag ? ' is-drag' : '')} data-drop="tl">
           {items.map((p, k) => {
             let leg = null;
             if (k > 0) {
@@ -101,7 +122,13 @@ export function PlanTab() {
             const bk = t.book.find((b) => b.date === p.date && b.time === p.time);
             return (
               <FragmentLi key={p.id} leg={leg}>
-                <li className="ev" style={ccStyle(p.type)} onClick={() => open(<PlanSheet trip={t} id={p.id} onSaved={goTo} />)}>
+                <li
+                  className={'ev' + (drag?.id === p.id ? ' lifted' : '')}
+                  data-id={p.id}
+                  style={ccStyle(p.type)}
+                  {...press({ kind: 'plan', id: p.id, title: p.title, type: p.type })}
+                  onClick={() => open(<PlanSheet trip={t} id={p.id} onSaved={goTo} />)}
+                >
                   <time>{p.time}</time>
                   <span className="dot"><Icon name={p.type} /></span>
                   <div className="ev-card">
@@ -129,9 +156,11 @@ export function PlanTab() {
           })}
         </ol>
       ) : (
-        <div className="empty"><b>아직 일정이 없어요</b>가볼 곳에서 골라 넣거나 직접 추가해보세요.</div>
+        <div className={'empty' + (over?.zone === 'tl' ? ' hot' : '')} data-drop="tl"><b>아직 일정이 없어요</b>아래 담아둔 장소를 꾹 눌러 여기로 끌어오거나 직접 추가해보세요.</div>
       )}
       <button className="add-row" onClick={() => open(<PlanSheet trip={t} day={date} onSaved={goTo} />)}>+ 이날 일정 추가</button>
+      <Tray trip={t} date={date} dragging={drag} overTray={over?.zone === 'tray'} press={press} />
+      {layer}
     </>
   );
 }
