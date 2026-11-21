@@ -54,7 +54,9 @@ export const COUNTRY: Record<CountryCode, CountryInfo> = {
 
 export const CONSULATE_CALL = '+82-2-3210-0404';
 
-export const CATS: Record<Cat, string> = { flight: '항공', stay: '숙소', food: '식비', move: '교통', sight: '관광', shop: '쇼핑', etc: '기타' };
+export const CATS: Record<Cat, string> = { flight: '항공', stay: '숙소', food: '식비', move: '교통', sight: '관광', shop: '쇼핑', etc: '기타', station: '전철역', bus: '버스' };
+/** 지출에 쓰는 분류 (전철역·버스는 장소 전용) */
+export const EXP_CATS: Cat[] = ['flight', 'stay', 'food', 'move', 'sight', 'shop', 'etc'];
 export const PAYS: Record<PayMethod, string> = { card: '카드', travel: '트래블카드', cash: '현금' };
 export const MODES: Record<Mode, string> = { subway: '지하철', walk: '도보', bus: '버스', train: '기차', taxi: '택시' };
 export const WXL: Record<Wx, string> = { sun: '맑음', cloud: '구름 많음', rain: '비', snow: '눈' };

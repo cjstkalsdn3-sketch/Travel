@@ -4,6 +4,8 @@ const P: Record<string, React.ReactNode> = {
   food: <path d="M7 3v18M4.5 3v5a2.5 2.5 0 0 0 5 0V3M17 21V3c-2 0-3.5 2.5-3.5 6s1.5 4 3.5 4" />,
   move: <><rect x="5" y="3" width="14" height="14" rx="3" /><path d="M5 11h14M8.5 21l1.5-4M15.5 21 14 17" /></>,
   sight: <><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.5" /></>,
+  station: <><rect x="6" y="3" width="12" height="14" rx="4" /><path d="M6 10h12M9 14h.01M15 14h.01M8 21l2-4M16 21l-2-4" /></>,
+  bus: <><rect x="4" y="4" width="16" height="13" rx="3" /><path d="M4 11h16M8 17v3M16 17v3M8 14h.01M16 14h.01M9 7.5h6" /></>,
   shop: <path d="M5 8h14l-1.2 12.2a1 1 0 0 1-1 .8H7.2a1 1 0 0 1-1-.8L5 8zM9 8V6.5a3 3 0 0 1 6 0V8" />,
   etc: <><circle cx="6" cy="12" r="1.3" /><circle cx="12" cy="12" r="1.3" /><circle cx="18" cy="12" r="1.3" /></>,
   walk: <><circle cx="13" cy="4.5" r="1.8" /><path d="M10 21l2-6-2.5-2.5L11 8l3 3 3 1M11 8l-3 2-1 3M14 15l2 6" /></>,

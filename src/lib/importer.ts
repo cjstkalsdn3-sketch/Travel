@@ -12,7 +12,9 @@ export function kindToCat(k?: string): Cat {
   if (/restaurant|cafe|bakery|bar|food|coffee|meal|dessert|ramen|sushi|izakaya|pub|tea/.test(k)) return 'food';
   if (/store|shop|mall|market|outlet|supermarket|boutique/.test(k)) return 'shop';
   if (/lodging|hotel|hostel|inn|resort|ryokan/.test(k)) return 'stay';
-  if (/station|airport|terminal|bus_stop/.test(k)) return 'move';
+  if (/bus_station|bus_stop/.test(k)) return 'bus';
+  if (/subway|train_station|transit_station|light_rail|metro/.test(k)) return 'station';
+  if (/station|airport|terminal/.test(k)) return 'move';
   return 'sight';
 }
 

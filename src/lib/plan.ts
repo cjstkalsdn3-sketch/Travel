@@ -2,7 +2,7 @@ import type { Booking, Cat, Geo, PlanItem, Trip, Wish } from './types';
 import { daysOf, mins, uid } from './utils';
 
 /** 종류별 기본 머무는 시간(분) */
-export const DEFAULT_STAY: Record<Cat, number> = { flight: 0, stay: 30, food: 60, move: 0, sight: 90, shop: 60, etc: 60 };
+export const DEFAULT_STAY: Record<Cat, number> = { flight: 0, stay: 30, food: 60, move: 0, sight: 90, shop: 60, etc: 60, station: 10, bus: 10 };
 export const stayOf = (p: PlanItem) => p.stay ?? DEFAULT_STAY[p.type];
 
 export const bookingOf = (t: Trip, p: PlanItem): Booking | undefined => t.book.find((b) => b.date === p.date && b.time === p.time);

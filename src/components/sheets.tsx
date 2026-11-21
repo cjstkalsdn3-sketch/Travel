@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Icon } from './Icon';
 import { CatChips, ConfirmButton, Seg, SheetHead, useCopy, useUI } from './ui';
 import { PlaceField } from './maps';
+import { NearbySheet } from './Nearby';
 import { isMapsUrl, mapsEnabled, resolveLink } from '@/lib/maps';
 import { DEFAULT_STAY, isFixed, ordForInsert, unplan } from '@/lib/plan';
-import { CATS, COUNTRY, CUR, MODES } from '@/lib/constants';
+import { CATS, COUNTRY, CUR, EXP_CATS, MODES } from '@/lib/constants';
 import { liveRate } from '@/lib/fx';
 import { signOut, update, updateTrip, useData, useSession } from '@/lib/store';
 import { starterChecklist } from '@/lib/sample';
@@ -76,7 +78,7 @@ export function ExpenseSheet({ trip, id, onSaved }: { trip: Trip; id?: string; o
         <div className={'amt' + (a ? '' : ' zero')} aria-live="polite">{shown}</div>
         <div className="conv">{cur === 'KRW' ? (a ? '원화로 결제' : '') : a ? `≈ ${krw(toK({ amt: a, cur }, trip))}` : rateLabel(trip)}</div>
       </div>
-      <CatChips value={cat} onChange={setCat} keys={Object.keys(CATS) as Cat[]} />
+      <CatChips value={cat} onChange={setCat} keys={EXP_CATS} />
       <div className="pay-rows">
         <div className="field">
           <span className="lbl">누가 냈어요?</span>
@@ -149,7 +151,7 @@ export function PlanSheet({
   fromWish?: Wish;
   onSaved?: (date: string) => void;
 }) {
-  const { close, toast } = useUI();
+  const { close, toast, open } = useUI();
   const p = id ? trip.plan.find((x) => x.id === id) : undefined;
   const ds = daysOf(trip);
   const [title, setTitle] = useState(p?.title ?? fromWish?.title ?? '');
@@ -205,9 +207,16 @@ export function PlanSheet({
   return (
     <>
       <SheetHead title={p ? '일정 고치기' : fromWish ? '가볼 곳을 일정에 넣기' : '일정 추가'} />
+      {p?.geo && mapsEnabled && (
+        <button className="near-row" onClick={() => open(<NearbySheet trip={trip} planId={p.id} />)}>
+          <Icon name="spark" />
+          <span><b>근처 맛집·구경거리 추천</b><small>평점 좋은 곳을 골라 바로 다음 일정으로 넣어요</small></span>
+          <Icon name="chev" />
+        </button>
+      )}
       <input className="inp" placeholder="무엇을 하나요? (예: 팀랩 플래닛)" value={title} onChange={(e) => (setTitle(e.target.value), setErr(false))} aria-invalid={err} autoComplete="off" autoFocus={!p && !fromWish} />
       {err && <p className="err">무엇을 하는지 적어주세요.</p>}
-      <CatChips value={type} onChange={setType} keys={['sight', 'food', 'shop', 'move', 'stay', 'flight', 'etc']} label={(c) => (c === 'sight' ? '구경' : CATS[c])} />
+      <CatChips value={type} onChange={setType} keys={['sight', 'food', 'shop', 'station', 'bus', 'move', 'stay', 'flight', 'etc']} label={(c) => (c === 'sight' ? '구경' : c === 'food' ? '음식집' : CATS[c])} />
       <PlaceField
         trip={trip}
         id="plPlace"
@@ -343,7 +352,7 @@ export function WishSheet({ trip, id }: { trip: Trip; id?: string }) {
       </div>
       <input className="inp" placeholder="이름 (예: 이치란 라멘 시부야)" value={title} onChange={(e) => (setTitle(e.target.value), setErr(false))} aria-invalid={err} autoComplete="off" />
       {err && <p className="err">이름이나 링크 중 하나는 있어야 해요.</p>}
-      <CatChips value={type} onChange={setType} keys={['food', 'sight', 'shop', 'stay', 'etc']} />
+      <CatChips value={type} onChange={setType} keys={['food', 'sight', 'shop', 'station', 'bus', 'stay', 'etc']} label={(c) => (c === 'food' ? '음식집' : CATS[c])} />
       <PlaceField
         trip={trip}
         id="wsPlace"
