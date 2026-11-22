@@ -499,6 +499,9 @@ export function ImportSheet({ trip }: { trip: Trip }) {
       }
       const list = [...byName.values()];
       if (!list.length) {
+        // '지도' 활동 기록만 들어 있는 경우 (저장됨을 안 고름)
+        if (seenFiles.some((n) => /서비스 요청|질문 및 답변|차량 프로필|Service requests|Questions and answers|Vehicle profile/i.test(n)))
+          return setErr('이건 구글지도 "활동 기록" 파일이라 저장한 장소가 없어요. 테이크아웃에서 모두 선택 해제 → "저장됨"만 체크해서 다시 내보내주세요.');
         const maps = seenFiles.filter((n) => /maps|지도|saved|저장/i.test(n));
         return setErr(
           seenFiles.length
@@ -554,7 +557,8 @@ export function ImportSheet({ trip }: { trip: Trip }) {
               목록 전체를 파일로 옮기기 <span>›</span>
             </summary>
             <ol className="howto">
-              <li><a href="https://takeout.google.com/settings/takeout/custom/maps,saved" target="_blank" rel="noopener noreferrer">구글 테이크아웃</a>에서 내보내기</li>
+              <li><a href="https://takeout.google.com/" target="_blank" rel="noopener noreferrer">구글 테이크아웃</a>에서 <b>모두 선택 해제</b></li>
+              <li>목록에서 <b>저장됨</b>만 체크하고 내보내기 (별표 장소까지 원하면 <b>지도(내 장소)</b>도)</li>
               <li>메일로 온 <b>.zip 파일을 그대로</b> 아래에 올리기 (압축 안 풀어도 돼요)</li>
             </ol>
             <label className="dropzone">
