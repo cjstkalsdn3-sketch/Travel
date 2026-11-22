@@ -1,10 +1,61 @@
-import type { Booking, Cat, Geo, PlanItem, Trip, Wish } from './types';
+import type { Booking, Cat, Geo, PlanItem, Stop, Trip, Wish } from './types';
 import { daysOf, mins, uid } from './utils';
 import { AIRPORT_CITY, COUNTRY } from './constants';
 
 /** 종류별 기본 머무는 시간(분) */
 export const DEFAULT_STAY: Record<Cat, number> = { flight: 0, stay: 30, food: 60, move: 0, sight: 90, shop: 60, etc: 60, station: 10, bus: 10 };
-export const stayOf = (p: PlanItem) => p.stay ?? DEFAULT_STAY[p.type];
+/** 머무는 시간. 따로 안 적었으면 함께 들르는 곳(곳마다 40분 + 그 사이 걷기)도 더해서 */
+export const stayOf = (p: PlanItem) => p.stay ?? DEFAULT_STAY[p.type] + innerMin(p);
+
+/** 함께 들르는 곳을 도는 데 드는 시간(분): 곳마다 40분 + 그 사이 이동 */
+export function innerMin(p: Pick<PlanItem, 'geo' | 'stops'>): number {
+  const st = p.stops ?? [];
+  if (!st.length) return 0;
+  let m = st.length * 40, at = p.geo ?? null;
+  for (const x of st) {
+    if (at && x.geo) m += estMin(at, x.geo);
+    if (x.geo) at = x.geo;
+  }
+  return m;
+}
+
+/** 이 일정을 마치고 나오는 곳 (마지막으로 들른 곳) */
+export const exitGeo = (p: PlanItem): Geo | null | undefined => [...(p.stops ?? [])].reverse().find((x) => x.geo)?.geo ?? p.geo;
+
+/** 함께 들르는 곳을 걷는 거리가 가장 짧은 순서로 (위치 모르는 곳은 맨 뒤 그대로) */
+export function orderStops(from: Geo | null | undefined, stops: Stop[]): Stop[] {
+  const g = stops.filter((x) => x.geo), rest = stops.filter((x) => !x.geo);
+  if (g.length < 2) return [...g, ...rest];
+  const len = (o: Stop[]) => o.reduce((s, x, i) => s + km(i ? o[i - 1].geo! : (from ?? x.geo!), x.geo!), 0);
+  let best = g, bestLen = len(g);
+  if (g.length <= 7) {
+    const rec = (done: Stop[], left: Stop[]) => {
+      if (!left.length) {
+        const l = len(done);
+        if (l < bestLen - 1e-9) {
+          bestLen = l;
+          best = done;
+        }
+        return;
+      }
+      left.forEach((x, i) => rec([...done, x], left.filter((_, j) => j !== i)));
+    };
+    rec([], g);
+  } else {
+    // 많으면 가장 가까운 곳부터
+    const left = [...g];
+    const out: Stop[] = [];
+    let at = from ?? left[0].geo!;
+    while (left.length) {
+      left.sort((a, b) => km(at, a.geo!) - km(at, b.geo!));
+      const x = left.shift()!;
+      out.push(x);
+      at = x.geo!;
+    }
+    best = out;
+  }
+  return [...best, ...rest];
+}
 
 export const bookingOf = (t: Trip, p: PlanItem): Booking | undefined => t.book.find((b) => b.date === p.date && b.time === p.time);
 
@@ -152,8 +203,9 @@ const DAY_START = 10 * 60;
 /** 끼워 넣을 자리 앞뒤를 보고 시간 정하기 */
 function timeAt(seq: PlanItem[], idx: number, geo: Geo | null | undefined, stay: number): string {
   const prev = seq[idx - 1], next = seq[idx];
-  if (prev) return hhmm(Math.min(23 * 60 + 30, mins(prev.time) + stayOf(prev) + estMin(prev.geo, geo)));
-  if (next) return hhmm(Math.max(7 * 60, mins(next.time) - stay - estMin(geo, next.geo)));
+  if (prev) return hhmm(Math.min(23 * 60 + 30, mins(prev.time) + stayOf(prev) + estMin(exitGeo(prev), geo)));
+  // 맨 앞에 넣을 땐 너무 이른 아침이 되지 않게 (뒤 일정은 reflow가 민다)
+  if (next) return hhmm(Math.max(Math.min(DAY_START, mins(next.time)), mins(next.time) - stay - estMin(geo, next.geo)));
   return hhmm(DAY_START);
 }
 
@@ -165,7 +217,7 @@ function fromWish(w: Wish, date: string): PlanItem {
 function reflow(t: Trip, seq: PlanItem[]) {
   for (let i = 1; i < seq.length; i++) {
     const a = seq[i - 1], b = seq[i];
-    const earliest = mins(a.time) + stayOf(a) + (b.travel?.min ?? estMin(a.geo, b.geo));
+    const earliest = mins(a.time) + stayOf(a) + (b.travel?.min ?? estMin(exitGeo(a), b.geo));
     if (mins(b.time) < earliest && !isFixed(t, b) && earliest < 24 * 60) {
       b.time = hhmm(Math.ceil(earliest / 5) * 5);
       delete b.wx;
@@ -222,13 +274,15 @@ export function unplan(t: Trip, id: string) {
 }
 
 /** 그날 동선에서 이동이 가장 덜 늘어나는 자리 */
-export function bestPos(seq: PlanItem[], geo?: Geo | null): number {
+export function bestPos(seq: PlanItem[], geo?: Geo | null, edge: { first?: boolean; last?: boolean } = {}): number {
   let pos = seq.length, add = Infinity;
   for (let i = 0; i <= seq.length; i++) {
     const a = seq[i - 1], b = seq[i];
-    if (i === 0 && b?.type === 'flight') continue; // 도착 비행기 앞에는 안 넣음
+    if (i === 0 && b?.type === 'flight' && !edge.last) continue; // 도착 비행기 앞에는 안 넣음
+    if (edge.first && !edge.last && seq.slice(i).some((x) => x.type === 'flight')) continue; // 첫날은 타고 가는 비행기 앞(출발 전)에 안 넣음
     if (i === seq.length && a?.type === 'stay' && seq.length > 1) continue; // 숙소 들어간 뒤로는 안 보냄
-    const inc = (a ? estMin(a.geo, geo) : 0) + (b ? estMin(geo, b.geo) : 0) - (a && b ? estMin(a.geo, b.geo) : 0);
+    if (edge.last && seq.slice(0, i).some((x) => x.type === 'flight')) continue; // 마지막 날 돌아가는 비행기 뒤로는 안 넣음
+    const inc = (a ? estMin(exitGeo(a), geo) : 0) + (b ? estMin(geo, b.geo) : 0) - (a && b ? estMin(exitGeo(a), b.geo) : 0);
     if (inc < add) {
       add = inc;
       pos = i;
@@ -240,44 +294,53 @@ export function bestPos(seq: PlanItem[], geo?: Geo | null): number {
 /** 그날 가장 알맞은 자리에 넣기 */
 export function placeBest(t: Trip, wishId: string, date: string): PlanItem | null {
   const w = t.wish.find((x) => x.id === wishId);
-  return w ? placeWish(t, wishId, date, bestPos(dayItems(t, date), w.geo)) : null;
+  return w ? placeWish(t, wishId, date, bestPos(dayItems(t, date), w.geo, { first: daysOf(t)[0] === date, last: daysOf(t).at(-1) === date })) : null;
 }
 
 /**
- * 담아둔 장소를 날짜별로 자동 배치.
- * 그날 이미 있는 일정과 가까운 날로 보내고, 하루가 너무 꽉 차지 않게 나눈 뒤
- * 그날 동선에서 이동이 가장 적게 늘어나는 자리에 끼워 넣는다.
+ * 담아둔 장소를 여행 전체 날짜에 고르게 자동 배치.
+ * 1) 날마다 몇 곳 넣을지 정한다: 원래 일정까지 합쳐 하루하루 비슷하게, 비행기 있는 날은 절반만.
+ * 2) 담아둔 곳을 가까운 곳끼리 한 줄로 잇고(가장 가까운 곳 따라가기), 그 줄을 날 순서대로 잘라 나눈다.
+ * 3) 그날 동선에서 이동이 가장 적게 늘어나는 자리에 끼워 넣는다.
  */
 export function autoPlace(t: Trip, ids?: string[]): number {
   const todo = unplaced(t).filter((w) => !ids || ids.includes(w.id));
   if (!todo.length) return 0;
   const ds = daysOf(t);
-  const load = ds.map((d) => dayItems(t, d).length);
-  const hasFlight = ds.map((d) => t.plan.some((p) => p.date === d && p.type === 'flight'));
-  const pts = ds.map((d) => t.plan.filter((p) => p.date === d && p.geo).map((p) => p.geo!) as Geo[]);
-  const center = (g: Geo[]) => (g.length ? { lat: g.reduce((s, x) => s + x.lat, 0) / g.length, lng: g.reduce((s, x) => s + x.lng, 0) / g.length } : null);
-  // 위치 있는 곳 먼저, 서로 가까운 것끼리 묶이게 위도·경도 순으로
-  const order = [...todo].sort((a, b) => (a.geo ? 0 : 1) - (b.geo ? 0 : 1) || (a.geo && b.geo ? a.geo.lng + a.geo.lat - (b.geo.lng + b.geo.lat) : 0));
-  const perDay = Math.max(3, Math.ceil((load.reduce((s, x) => s + x, 0) + todo.length) / ds.length) + 1);
-  let n = 0;
-  for (const w of order) {
-    let best = -1, bestScore = Infinity;
-    ds.forEach((_, k) => {
-      const c = center(pts[k]);
-      const dist = w.geo && c ? km(w.geo, c) : 4;
-      const score = dist + load[k] * 1.2 + (hasFlight[k] ? 4 : 0) + (load[k] >= perDay ? 50 : 0);
-      if (score < bestScore) {
-        bestScore = score;
-        best = k;
-      }
-    });
-    const date = ds[best];
-    const pos = bestPos(dayItems(t, date), w.geo);
-    placeWish(t, w.id, date, pos);
-    load[best]++;
-    if (w.geo) pts[best].push(w.geo);
-    n++;
+  // 비행기는 따로(그날은 절반만 채움) 보고 나머지 일정 수를 센다
+  const load = ds.map((d) => dayItems(t, d).filter((p) => p.type !== 'flight').length);
+  const weight = ds.map((d) => (t.plan.some((p) => p.date === d && p.type === 'flight') ? 0.5 : 1));
+  // 1) 날마다 넣을 개수: (원래 + 새로) ÷ 그날 여유가 가장 작은 날에 하나씩
+  const quota = ds.map(() => 0);
+  for (let i = 0; i < todo.length; i++) {
+    let k = 0;
+    for (let j = 1; j < ds.length; j++) if ((load[j] + quota[j] + 1) / weight[j] < (load[k] + quota[k] + 1) / weight[k] - 1e-9) k = j;
+    quota[k]++;
   }
+  // 2) 가까운 곳끼리 잇기. 첫날 일정(공항·숙소 등)과 가장 가까운 곳에서 시작
+  const geoOf = (d: string) => t.plan.filter((p) => p.date === d && p.geo).map((p) => p.geo!);
+  const firstGeo = ds.map(geoOf).find((g) => g.length)?.[0];
+  const left = todo.filter((w) => w.geo);
+  const chain: Wish[] = [];
+  if (left.length) {
+    let at: Geo = firstGeo ?? left.reduce((m, w) => (w.geo!.lng < m.lng ? w.geo! : m), left[0].geo!);
+    while (left.length) {
+      let bi = 0;
+      for (let i = 1; i < left.length; i++) if (km(at, left[i].geo!) < km(at, left[bi].geo!)) bi = i;
+      const w = left.splice(bi, 1)[0];
+      chain.push(w);
+      at = w.geo!;
+    }
+  }
+  chain.push(...todo.filter((w) => !w.geo));
+  // 3) 날 순서대로 잘라서 넣기
+  let n = 0;
+  ds.forEach((date, k) => {
+    for (const w of chain.splice(0, quota[k])) {
+      placeWish(t, w.id, date, bestPos(dayItems(t, date), w.geo, { first: k === 0, last: k === ds.length - 1 }));
+      n++;
+    }
+  });
   return n;
 }
 

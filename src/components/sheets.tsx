@@ -7,7 +7,7 @@ import { CatChips, ccStyle, ConfirmButton, Seg, SheetHead, useCopy, useUI } from
 import { PlaceField } from './maps';
 import { NearbySheet } from './Nearby';
 import { isMapsUrl, mapsEnabled, resolveLink } from '@/lib/maps';
-import { DEFAULT_STAY, isFixed, ordForInsert, unplaced, unplan } from '@/lib/plan';
+import { DEFAULT_STAY, innerMin, isFixed, ordForInsert, unplaced, unplan } from '@/lib/plan';
 import { kindToCat } from '@/lib/importer';
 import { AIRPORTS, CATS, COUNTRY, CUR, EXP_CATS, KR_AIRPORTS, MODES, airportName } from '@/lib/constants';
 import { liveRate } from '@/lib/fx';
@@ -344,7 +344,7 @@ export function PlanSheet({
       <div className="row2">
         <div className="field">
           <label htmlFor="plStay">머무는 시간(분)</label>
-          <input className="inp num" id="plStay" inputMode="numeric" placeholder={String(DEFAULT_STAY[type])} value={stay} onChange={(e) => setStay(e.target.value.replace(/[^\d]/g, ''))} autoComplete="off" />
+          <input className="inp num" id="plStay" inputMode="numeric" placeholder={String(DEFAULT_STAY[type] + innerMin({ geo, stops }))} value={stay} onChange={(e) => setStay(e.target.value.replace(/[^\d]/g, ''))} autoComplete="off" />
         </div>
         <div className="field">
           <span className="lbl">동선 정리 때</span>

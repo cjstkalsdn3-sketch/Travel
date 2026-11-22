@@ -396,6 +396,10 @@ a.icon-btn{color:inherit}
 .route-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--surface-2)}
 .route-row b,.reorder b{width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font-size:12px;flex:none}
 .route-row span:nth-child(2){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.route-in{display:flex;flex-direction:column;gap:4px;margin:4px 0 0 22px;padding:6px 0 2px 12px;border-left:2px dashed var(--line)}
+.route-in>span{display:flex;align-items:center;gap:8px;font-size:13px}
+.route-in>span b{min-width:28px;height:18px;padding:0 5px;border-radius:9px;background:var(--surface-2);color:var(--muted);display:grid;place-items:center;font-size:11px}
+.route-in small{color:var(--faint);font-size:12px}
 .check-row{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;min-height:40px}
 .check-row input{width:18px;height:18px;accent-color:var(--accent);flex:none}
 .check-row span{display:flex;flex-direction:column;min-width:0}
