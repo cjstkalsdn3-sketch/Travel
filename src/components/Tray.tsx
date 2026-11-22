@@ -211,7 +211,22 @@ export function useDragBoard({ onDrop, onDayHover }: { onDrop: (src: DragSrc, ov
 
 /* ================= 담아둔 장소 위젯 ================= */
 
-export function Tray({ trip, date, dragging, overTray, press }: { trip: Trip; date: string; dragging: DragSrc | null; overTray: boolean; press: (src: DragSrc) => object }) {
+export function Tray({
+  trip,
+  date,
+  dragging,
+  overTray,
+  press,
+  onHover,
+}: {
+  trip: Trip;
+  date: string;
+  dragging: DragSrc | null;
+  overTray: boolean;
+  press: (src: DragSrc) => object;
+  /** 칩을 가리키면 지도에서 그 핀을 보여줌 */
+  onHover?: (id: string | null) => void;
+}) {
   const { open, toast } = useUI();
   const list = unplaced(trip);
   const [busy, setBusy] = useState(false);
@@ -222,6 +237,21 @@ export function Tray({ trip, date, dragging, overTray, press }: { trip: Trip; da
       return false;
     }
   });
+  // 크게 보기: 가로 한 줄 대신 여러 줄로 다 보여줌
+  const [big, setBig] = useState(() => {
+    try {
+      return localStorage.getItem('trip.trayBig') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const grow = (v: boolean) => {
+    setBig(v);
+    try {
+      localStorage.setItem('trip.trayBig', v ? '1' : '0');
+    } catch {}
+    if (v && folded) fold(false);
+  };
   const fold = (v: boolean) => {
     setFolded(v);
     try {
@@ -252,7 +282,7 @@ export function Tray({ trip, date, dragging, overTray, press }: { trip: Trip; da
 
   const removing = dragging?.kind === 'plan';
   return (
-    <section className={'tray' + (removing ? ' drop' : '') + (overTray ? ' hot' : '') + (folded && !removing ? ' folded' : '')} aria-label="담아둔 장소">
+    <section className={'tray' + (removing ? ' drop' : '') + (overTray ? ' hot' : '') + (folded && !removing ? ' folded' : '') + (big && !folded ? ' big' : '')} aria-label="담아둔 장소">
       {removing ? (
         <div className="tray-drop"><Icon name="x" />여기에 놓으면 일정에서 빼서 다시 담아둬요</div>
       ) : (
@@ -262,6 +292,11 @@ export function Tray({ trip, date, dragging, overTray, press }: { trip: Trip; da
               <b>담아둔 장소</b><span className="num">{list.length}</span>
               <Icon name="chev" />
             </button>
+            {list.length > 3 && !folded && (
+              <button className="tray-grow" onClick={() => grow(!big)} aria-pressed={big}>
+                {big ? '줄이기' : '전체 보기'}
+              </button>
+            )}
             <div className="tray-acts">
               {list.length > 0 && (
                 <button className="tray-btn" onClick={auto}><Icon name="spark" />자동 배치</button>
@@ -274,9 +309,10 @@ export function Tray({ trip, date, dragging, overTray, press }: { trip: Trip; da
               <ul className="tray-list">
                 {list.map((w) => (
                   <li key={w.id}>
-                    <button className="tchip" style={ccStyle(w.type)} {...press({ kind: 'wish', id: w.id, title: w.title, type: w.type })} onClick={() => open(<PlaceSheet trip={trip} id={w.id} date={date} />)}>
+                    <button className="tchip" style={ccStyle(w.type)} {...press({ kind: 'wish', id: w.id, title: w.title, type: w.type })} onClick={() => open(<PlaceSheet trip={trip} id={w.id} date={date} />)} onMouseEnter={() => onHover?.(w.id)} onMouseLeave={() => onHover?.(null)} onFocus={() => onHover?.(w.id)} onBlur={() => onHover?.(null)}>
                       <span className="cat-ic"><Icon name={w.type} /></span>
                       <span className="tchip-t">{w.title}</span>
+                      {!w.geo && <span className="tchip-nogeo" title="위치 없음">·</span>}
                     </button>
                   </li>
                 ))}
@@ -292,7 +328,7 @@ export function Tray({ trip, date, dragging, overTray, press }: { trip: Trip; da
 }
 
 /** 칩을 톡 눌렀을 때: 날짜 골라 넣기 */
-function PlaceSheet({ trip, id, date }: { trip: Trip; id: string; date: string }) {
+export function PlaceSheet({ trip, id, date }: { trip: Trip; id: string; date: string }) {
   const { open, close, toast } = useUI();
   const w = trip.wish.find((x) => x.id === id);
   if (!w) return null;

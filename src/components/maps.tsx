@@ -137,7 +137,26 @@ export function PlaceField({
 }
 
 /* ================= 하루 지도 ================= */
-export function DayMap({ items, big, focus, hot, onPick }: { items: PlanItem[]; big?: boolean; focus?: string | null; hot?: string | null; onPick?: (id: string) => void }) {
+export function DayMap({
+  items,
+  big,
+  focus,
+  hot,
+  onPick,
+  wishes = [],
+  hotWish,
+  onPickWish,
+}: {
+  items: PlanItem[];
+  big?: boolean;
+  focus?: string | null;
+  hot?: string | null;
+  onPick?: (id: string) => void;
+  /** 담아둔 장소 (아직 일정에 안 넣은 곳) */
+  wishes?: Wish[];
+  hotWish?: string | null;
+  onPickWish?: (id: string) => void;
+}) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<google.maps.Map | null>(null);
   const drawn = useRef<(google.maps.Marker | google.maps.Polyline)[]>([]);
@@ -148,6 +167,36 @@ export function DayMap({ items, big, focus, hot, onPick }: { items: PlanItem[]; 
   const [err, setErr] = useState('');
   const pts = items.map((p, i) => ({ p, i })).filter((x) => x.p.geo);
   const sig = pts.map((x) => `${x.p.id}:${x.i}:${x.p.geo!.lat},${x.p.geo!.lng}`).join('|');
+  const [showWish, setShowWish] = useState(true);
+  const wishGeo = wishes.filter((w) => w.geo).length;
+  const anyGeo = pts.length > 0 || wishGeo > 0;
+  const wpts = showWish ? wishes.filter((w) => w.geo) : [];
+  const wsig = wpts.map((w) => `${w.id}:${w.type}:${w.title}:${w.geo!.lat},${w.geo!.lng}`).join('|');
+  const wmarks = useRef(new Map<string, google.maps.Marker>());
+  const wbounds = useRef<google.maps.LatLngBounds | null>(null);
+  /** 하루 일정 + (켜져 있으면) 담아둔 곳이 다 보이게 */
+  const fitAll = () => {
+    const mp = map.current;
+    const g = window.google?.maps;
+    if (!mp || !g) return;
+    const b = new g.LatLngBounds();
+    let n = 0;
+    for (const x of [whole.current, wbounds.current]) {
+      if (!x) continue;
+      b.union(x);
+      n++;
+    }
+    const cnt = pts.length + wmarks.current.size;
+    if (!n || !cnt) return;
+    if (cnt === 1) {
+      mp.setCenter(b.getCenter());
+      mp.setZoom(15);
+    } else mp.fitBounds(b, big ? 72 : 40);
+  };
+  const pickWishRef = useRef(onPickWish);
+  useEffect(() => {
+    pickWishRef.current = onPickWish;
+  }, [onPickWish]);
 
   useEffect(() => {
     pickRef.current = onPick;
@@ -158,12 +207,13 @@ export function DayMap({ items, big, focus, hot, onPick }: { items: PlanItem[]; 
     loadMaps()
       .then((g) => {
         if (dead || !el.current) return;
-        if (!map.current)
+        if (!map.current || map.current.getDiv() !== el.current)
           map.current = new g.Map(el.current, { disableDefaultUI: true, zoomControl: true, clickableIcons: false, gestureHandling: big ? 'greedy' : 'cooperative' });
         drawn.current.forEach((d) => d.setMap(null));
         drawn.current = [];
         marks.current.clear();
         whole.current = null;
+        setReady((n) => n + 1);
         if (!pts.length) return;
         const bounds = new g.LatLngBounds();
         const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#C93A6E';
@@ -190,10 +240,6 @@ export function DayMap({ items, big, focus, hot, onPick }: { items: PlanItem[]; 
           }),
         );
         whole.current = bounds;
-        if (pts.length === 1) {
-          map.current.setCenter(bounds.getCenter());
-          map.current.setZoom(15);
-        } else map.current.fitBounds(bounds, big ? 72 : 40);
         setReady((n) => n + 1);
       })
       .catch((e: Error) => setErr(e.message));
@@ -201,7 +247,50 @@ export function DayMap({ items, big, focus, hot, onPick }: { items: PlanItem[]; 
       dead = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sig]);
+  }, [sig, anyGeo]);
+
+  // 담아둔 장소 핀: 작은 흰 동그라미 + 이름표. 누르면 날짜 골라 넣기
+  useEffect(() => {
+    const g = window.google?.maps;
+    const mp = map.current;
+    if (!g || !mp || !ready) return;
+    wmarks.current.forEach((m) => m.setMap(null));
+    wmarks.current.clear();
+    const css = getComputedStyle(document.documentElement);
+    const wb = new g.LatLngBounds();
+    for (const w of wpts) {
+      const pos = { lat: w.geo!.lat, lng: w.geo!.lng };
+      wb.extend(pos);
+      const color = css.getPropertyValue(`--c-${w.type}`).trim() || '#888';
+      const m = new g.Marker({
+        map: mp,
+        position: pos,
+        title: w.title,
+        zIndex: 0,
+        icon: { path: g.SymbolPath.CIRCLE, scale: 7, fillColor: '#fff', fillOpacity: 1, strokeColor: color, strokeWeight: 3.5, labelOrigin: new g.Point(0, 3.4) },
+        label: { text: w.title.length > 12 ? w.title.slice(0, 11) + '…' : w.title, className: 'wish-lab', color: '#3a2530', fontSize: '11px', fontWeight: '600' },
+      });
+      m.addListener('click', () => pickWishRef.current?.(w.id));
+      wmarks.current.set(w.id, m);
+    }
+    wbounds.current = wpts.length ? wb : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsig, ready]);
+
+  // 위젯에서 가리킨 담아둔 곳은 크게
+  useEffect(() => {
+    const g = window.google?.maps;
+    if (!g) return;
+    for (const [id, m] of wmarks.current) {
+      const ic = m.getIcon() as google.maps.Symbol;
+      const on = id === hotWish;
+      m.setIcon({ ...ic, scale: on ? 11 : 7, fillColor: on ? (ic.strokeColor as string) : '#fff' });
+      m.setZIndex(on ? 20 : 0);
+    }
+    const h = hotWish ? wmarks.current.get(hotWish) : null;
+    const mp = map.current;
+    if (h && mp && !mp.getBounds()?.contains(h.getPosition()!)) mp.panTo(h.getPosition()!);
+  }, [hotWish, wsig]);
 
   // 고른 일정으로 지도 옮기기 (없으면 하루 전체가 보이게)
   useEffect(() => {
@@ -211,9 +300,9 @@ export function DayMap({ items, big, focus, hot, onPick }: { items: PlanItem[]; 
     if (f) {
       mp.panTo(f.m.getPosition()!);
       if ((mp.getZoom() ?? 0) < 15) mp.setZoom(15);
-    } else if (whole.current && pts.length > 1) mp.fitBounds(whole.current, big ? 72 : 40);
+    } else fitAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus, ready]);
+  }, [focus, ready, wsig]);
 
   // 고른 것·가리킨 것은 크게
   useEffect(() => {
@@ -229,7 +318,7 @@ export function DayMap({ items, big, focus, hot, onPick }: { items: PlanItem[]; 
     }
   }, [focus, hot, ready]);
 
-  if (!pts.length)
+  if (!anyGeo)
     return (
       <div className={'map-empty' + (big ? ' big' : '')}>
         {big && <Icon name="map" />}
@@ -241,6 +330,11 @@ export function DayMap({ items, big, focus, hot, onPick }: { items: PlanItem[]; 
       <div ref={el} className="daymap" role="img" aria-label="이날 일정 지도" />
       {err && <p className="err">{err}</p>}
       {pts.length < items.length && <p className="note">위치가 없는 일정 {items.length - pts.length}개는 지도에 안 보여요.</p>}
+      {wishGeo > 0 && (
+        <button type="button" className={'wish-toggle' + (showWish ? ' on' : '')} aria-pressed={showWish} onClick={() => setShowWish(!showWish)}>
+          <span className="wt-dot" />담아둔 곳 {wishGeo}
+        </button>
+      )}
     </div>
   );
 }

@@ -9,8 +9,8 @@ import { WxBadge, WxDayPill } from './Wx';
 import { DayMap, ImportSheet, ReorderSheet, RouteSheet } from './maps';
 import { AltBar } from './Alts';
 import { NearbySheet } from './Nearby';
-import { snapshot, Tray, useDragBoard, type DragSrc, type Over } from './Tray';
-import { dayItems, movePlan, placeWish, unplan } from '@/lib/plan';
+import { PlaceSheet, snapshot, Tray, useDragBoard, type DragSrc, type Over } from './Tray';
+import { dayItems, movePlan, placeWish, unplaced, unplan } from '@/lib/plan';
 import { mapsEnabled } from '@/lib/maps';
 import { CATS, CONSULATE_CALL, COUNTRY, MODES, PAYS, WD } from '@/lib/constants';
 import { updateTrip, useData } from '@/lib/store';
@@ -37,6 +37,9 @@ export function PlanTab() {
   const bigMap = wide && mapsEnabled;
   const [sel, setSel] = useState<string | null>(null);
   const [hot, setHot] = useState<string | null>(null);
+  const [hotWish, setHotWish] = useState<string | null>(null);
+  const waiting = unplaced(t);
+  const pickWish = (id: string) => open(<PlaceSheet trip={t} id={id} date={date} />);
   const focus = sel && items.some((p) => p.id === sel) ? sel : null;
   const dayK = t.exp.filter((e) => e.date === date).reduce((s, e) => s + toK(e, t), 0);
   const wx = t.wxd?.[date];
@@ -93,7 +96,7 @@ export function PlanTab() {
         </div>
         <WxDayPill w={wx} far={far} />
       </div>
-      {items.length > 0 && (
+      {(items.length > 0 || (mapsEnabled && waiting.some((w) => w.geo))) && (
         <div className="day-acts">
           {mapsEnabled && !bigMap && (
             <button className={'chip-btn' + (showMap ? ' on' : '')} aria-pressed={showMap} onClick={() => setShowMap(!showMap)}>
@@ -112,7 +115,7 @@ export function PlanTab() {
           )}
         </div>
       )}
-      {showMap && mapsEnabled && !bigMap && <DayMap items={items} />}
+      {showMap && mapsEnabled && !bigMap && <DayMap items={items} wishes={waiting} onPickWish={pickWish} />}
       {items.length ? (
         <ol className={'tl' + (drag ? ' is-drag' : '')} data-drop="tl">
           {items.map((p, k) => {
@@ -185,11 +188,11 @@ export function PlanTab() {
         <div className={'empty' + (over?.zone === 'tl' ? ' hot' : '')} data-drop="tl"><b>아직 일정이 없어요</b>아래 담아둔 장소를 꾹 눌러 여기로 끌어오거나 직접 추가해보세요.</div>
       )}
       <button className="add-row" onClick={() => open(<PlanSheet trip={t} day={date} onSaved={goTo} />)}>+ 이날 일정 추가</button>
-      <Tray trip={t} date={date} dragging={drag} overTray={over?.zone === 'tray'} press={press} />
+      <Tray trip={t} date={date} dragging={drag} overTray={over?.zone === 'tray'} press={press} onHover={bigMap ? setHotWish : undefined} />
       </div>
       {bigMap && (
         <aside className="plan-map" key={date}>
-          <DayMap items={items} big focus={focus} hot={hot} onPick={pickOnMap} />
+          <DayMap items={items} big focus={focus} hot={hot} onPick={pickOnMap} wishes={waiting} hotWish={hotWish} onPickWish={pickWish} />
           {focus && items.find((x) => x.id === focus)?.geo && (
             <button className="map-all" onClick={() => setSel(null)}>
               <Icon name="map" />하루 전체 보기
