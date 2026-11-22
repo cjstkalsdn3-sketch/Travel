@@ -5,7 +5,7 @@ import { Icon } from './Icon';
 import { SheetHead, useUI } from './ui';
 import { COUNTRY, MODES } from '@/lib/constants';
 import { isMapsUrl, loadMaps, mapsEnabled, pickLeg, placeDetails, resolveLink, searchPlaces, suggestPlaces, travelMatrix, type LegTime, type PlaceHit, type Suggest } from '@/lib/maps';
-import { tripCenter, dayItems, hhmm, isFixed, optimize, pathCost, stayOf, writeOrder, type Matrix } from '@/lib/plan';
+import { tripCenter, dayItems, hhmm, innerMin, isFixed, optimize, orderStops, pathCost, stayOf, writeOrder, type Matrix } from '@/lib/plan';
 import { updateTrip } from '@/lib/store';
 import type { Cat, Geo, PlanItem, Trip, Wish } from '@/lib/types';
 import { dur, host, mdw, mins, pd, uid } from '@/lib/utils';
@@ -166,10 +166,14 @@ export function DayMap({
   const [ready, setReady] = useState(0);
   const [err, setErr] = useState('');
   const pts = items.map((p, i) => ({ p, i })).filter((x) => x.p.geo);
-  const sig = pts.map((x) => `${x.p.id}:${x.i}:${x.p.geo!.lat},${x.p.geo!.lng}`).join('|');
+  const stopGeo = items.some((p) => p.stops?.some((st) => st.geo));
+  const sig =
+    pts.map((x) => `${x.p.id}:${x.i}:${x.p.geo!.lat},${x.p.geo!.lng}`).join('|') +
+    '#' +
+    items.map((p) => (p.stops ?? []).map((st) => (st.geo ? `${st.geo.lat},${st.geo.lng}` : '')).join(',')).join('|');
   const [showWish, setShowWish] = useState(true);
   const wishGeo = wishes.filter((w) => w.geo).length;
-  const anyGeo = pts.length > 0 || wishGeo > 0;
+  const anyGeo = pts.length > 0 || wishGeo > 0 || stopGeo;
   const wpts = showWish ? wishes.filter((w) => w.geo) : [];
   const wsig = wpts.map((w) => `${w.id}:${w.type}:${w.title}:${w.geo!.lat},${w.geo!.lng}`).join('|');
   const wmarks = useRef(new Map<string, google.maps.Marker>());
@@ -186,7 +190,7 @@ export function DayMap({
       b.union(x);
       n++;
     }
-    const cnt = pts.length + wmarks.current.size;
+    const cnt = pts.length + wmarks.current.size + (stopGeo ? 2 : 0);
     if (!n || !cnt) return;
     if (cnt === 1) {
       mp.setCenter(b.getCenter());
@@ -214,7 +218,7 @@ export function DayMap({
         marks.current.clear();
         whole.current = null;
         setReady((n) => n + 1);
-        if (!pts.length) return;
+        if (!pts.length && !stopGeo) return;
         const bounds = new g.LatLngBounds();
         const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#C93A6E';
         pts.forEach(({ p, i }) => {
@@ -231,10 +235,30 @@ export function DayMap({
           marks.current.set(p.id, { m, n: i + 1 });
           drawn.current.push(m);
         });
+        // 일정 안에서 함께 들르는 곳: 작은 번호 핀 (예: 3-1, 3-2)
+        const sub = new g.LatLngBounds();
+        items.forEach((p, i) =>
+          (p.stops ?? []).forEach((st, k) => {
+            if (!st.geo) return;
+            const pos = { lat: st.geo.lat, lng: st.geo.lng };
+            bounds.extend(pos);
+            sub.extend(pos);
+            const m = new g.Marker({
+              map: map.current!,
+              position: pos,
+              title: `${p.title} · ${st.name}`,
+              zIndex: 2,
+              label: { text: `${i + 1}-${k + 1}`, color: accent, fontWeight: '700', fontSize: '10px' },
+              icon: { path: g.SymbolPath.CIRCLE, scale: 10, fillColor: '#fff', fillOpacity: 1, strokeColor: accent, strokeWeight: 2.5 },
+            });
+            m.addListener('click', () => pickRef.current?.(p.id));
+            drawn.current.push(m);
+          }),
+        );
         drawn.current.push(
           new g.Polyline({
             map: map.current!,
-            path: pts.map(({ p }) => ({ lat: p.geo!.lat, lng: p.geo!.lng })),
+            path: pts.flatMap(({ p }) => [{ lat: p.geo!.lat, lng: p.geo!.lng }, ...(p.stops ?? []).filter((x) => x.geo).map((x) => ({ lat: x.geo!.lat, lng: x.geo!.lng }))]),
             strokeOpacity: 0,
             icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, strokeColor: accent, scale: 3 }, offset: '0', repeat: '12px' }],
           }),
@@ -353,6 +377,20 @@ export function RouteSheet({ trip, date }: { trip: Trip; date: string }) {
   const { close, toast } = useUI();
   const items = useMemo(() => dayItems(trip, date), [trip, date]);
   const geoIdx = useMemo(() => items.map((p, i) => (p.geo ? i : -1)).filter((i) => i >= 0), [items]);
+  // 함께 들르는 곳은 그 일정 머무는 시간 안에서 걷는 거리가 가장 짧게 돌고, 다음 일정은 마지막 들른 곳에서 출발
+  const inner = useMemo(() => items.map((p) => (p.stops?.length ? orderStops(p.geo, p.stops) : undefined)), [items]);
+  const pts = useMemo(() => {
+    const list: Geo[] = geoIdx.map((i) => items[i].geo!);
+    const exitAt = new Map<number, number>();
+    geoIdx.forEach((i, k) => {
+      const ex = [...(inner[i] ?? [])].reverse().find((x) => x.geo)?.geo;
+      if (ex && list.length < 10) {
+        exitAt.set(i, list.length);
+        list.push(ex);
+      } else exitAt.set(i, k);
+    });
+    return { list, exitAt };
+  }, [geoIdx, items, inner]);
   const [legs, setLegs] = useState<LegTime[][] | null>(null);
   const [fetchErr, setErr] = useState('');
   const err = geoIdx.length > 10 ? '한 날에 위치가 있는 일정이 10곳을 넘으면 자동 정리를 못 해요.' : fetchErr;
@@ -360,17 +398,17 @@ export function RouteSheet({ trip, date }: { trip: Trip; date: string }) {
 
   useEffect(() => {
     if (geoIdx.length < 2 || geoIdx.length > 10) return;
-    travelMatrix(geoIdx.map((i) => items[i].geo!), departureFor(trip, date))
+    travelMatrix(pts.list, departureFor(trip, date))
       .then(setLegs)
       .catch(() => setErr('이동 시간을 가져오지 못했어요. 잠시 뒤 다시 해주세요.'));
-  }, [geoIdx, items, trip, date]);
+  }, [geoIdx, pts, trip, date]);
 
   const plan = useMemo(() => {
     if (!legs) return null;
     const n = items.length;
     const pos = new Map(geoIdx.map((it, k) => [it, k]));
     const legAt = (a: number, b: number) => {
-      const ka = pos.get(a);
+      const ka = pts.exitAt.get(a);
       const kb = pos.get(b);
       return ka === undefined || kb === undefined ? null : pickLeg(legs[ka]?.[kb]);
     };
@@ -378,8 +416,9 @@ export function RouteSheet({ trip, date }: { trip: Trip; date: string }) {
     const fixedPos = items.map((p) => !p.geo || isFixed(trip, p));
     const order = optimize(n, fixedPos, cost);
     const base = items.map((_, i) => i);
-    return { order, before: pathCost(base, cost), after: pathCost(order, cost), legAt, fixedPos };
-  }, [legs, items, geoIdx, trip]);
+    const innerMoved = items.some((p, i) => inner[i] && inner[i]!.some((x, k) => x.id !== p.stops![k].id));
+    return { order, before: pathCost(base, cost), after: pathCost(order, cost), legAt, fixedPos, innerMoved };
+  }, [legs, items, geoIdx, trip, pts, inner]);
 
   function apply(order: number[]) {
     if (!plan) return;
@@ -389,6 +428,7 @@ export function RouteSheet({ trip, date }: { trip: Trip; date: string }) {
       let prevIdx = -1;
       for (const i of order) {
         const p = t.plan.find((x) => x.id === items[i].id)!;
+        if (inner[i]) p.stops = inner[i];
         if (prev) {
           const leg = plan.legAt(prevIdx, i);
           if (leg) p.travel = { ...leg, auto: true };
@@ -430,7 +470,7 @@ export function RouteSheet({ trip, date }: { trip: Trip; date: string }) {
             <Icon name="chev" />
             <div><small>정리하면</small><b className="num">{dur(Math.round(plan.after))}</b></div>
           </div>
-          <p className="sub" style={{ margin: 0 }}>{saved > 0 ? `이동 시간이 ${dur(saved)} 줄어요.` : '이미 이동이 가장 짧은 순서예요.'} 🔒 표시는 항공·숙소·예약처럼 고정된 일정이에요.</p>
+          <p className="sub" style={{ margin: 0 }}>{saved > 0 ? `이동 시간이 ${dur(saved)} 줄어요.` : '이미 이동이 가장 짧은 순서예요.'}{plan.innerMoved ? ' 함께 들르는 곳도 걷기 짧은 순서로 바꿔요.' : ''} 🔒 표시는 항공·숙소·예약처럼 고정된 일정이에요.</p>
           <ol className="route-list">
             {plan.order.map((i, k) => {
               const p = items[i];
@@ -443,6 +483,14 @@ export function RouteSheet({ trip, date }: { trip: Trip; date: string }) {
                     <span>{p.title}</span>
                     {plan.fixedPos[i] && <span aria-label="고정">🔒</span>}
                   </span>
+                  {inner[i] && (
+                    <span className="route-in">
+                      {inner[i]!.map((x, m) => (
+                        <span key={x.id}><b className="num">{k + 1}-{m + 1}</b>{x.name}</span>
+                      ))}
+                      <small>안에서 약 {dur(innerMin({ geo: p.geo, stops: inner[i] }))} · 머무는 시간 {dur(stayOf({ ...p, stops: inner[i] }))}</small>
+                    </span>
+                  )}
                 </li>
               );
             })}
@@ -451,7 +499,7 @@ export function RouteSheet({ trip, date }: { trip: Trip; date: string }) {
             <input type="checkbox" checked={retime} onChange={(e) => setRetime(e.target.checked)} />
             시간도 자동으로 맞추기 (머무는 시간 + 이동 시간)
           </label>
-          <button className="primary" onClick={() => apply(plan.order)}>{saved > 0 ? '이 순서로 바꾸기' : '이동 시간만 채우기'}</button>
+          <button className="primary" onClick={() => apply(plan.order)}>{saved > 0 || plan.innerMoved ? '이 순서로 바꾸기' : '이동 시간만 채우기'}</button>
           {saved > 0 && <button className="sec-btn" onClick={() => apply(items.map((_, i) => i))}>순서는 그대로, 이동 시간만 채우기</button>}
         </>
       )}

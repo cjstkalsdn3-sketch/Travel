@@ -396,6 +396,10 @@ a.icon-btn{color:inherit}
 .route-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--surface-2)}
 .route-row b,.reorder b{width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font-size:12px;flex:none}
 .route-row span:nth-child(2){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.route-in{display:flex;flex-direction:column;gap:4px;margin:4px 0 0 22px;padding:6px 0 2px 12px;border-left:2px dashed var(--line)}
+.route-in>span{display:flex;align-items:center;gap:8px;font-size:13px}
+.route-in>span b{min-width:28px;height:18px;padding:0 5px;border-radius:9px;background:var(--surface-2);color:var(--muted);display:grid;place-items:center;font-size:11px}
+.route-in small{color:var(--faint);font-size:12px}
 .check-row{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;min-height:40px}
 .check-row input{width:18px;height:18px;accent-color:var(--accent);flex:none}
 .check-row span{display:flex;flex-direction:column;min-width:0}
@@ -714,3 +718,23 @@ button.maplink{border:0;cursor:pointer;font-family:inherit}
 .tray-h{flex-wrap:nowrap}
 body:has(.tray.big) .fab{display:none}
 @media (min-width:1024px){body:has(.tray.big) .fab{display:flex}}
+
+/* ---------- 일정 안의 함께 들를 곳 ---------- */
+.stops .cnt{font-family:var(--f-num);color:var(--accent);margin-left:2px}
+.stop-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.stop-list li{display:flex;align-items:center;gap:8px;padding:8px 6px 8px 8px;border-radius:12px;background:var(--surface-2)}
+.stop-n{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11.5px;font-weight:700;color:#fff;background:var(--cc);flex:none}
+.stop-t{display:flex;flex-direction:column;min-width:0;flex:1}
+.stop-t b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stop-t small{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stop-list button{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--muted);flex:none}
+.stop-list button:first-of-type svg{transform:rotate(90deg)}
+.stop-list button:disabled{opacity:.3}
+.stop-pick small{font-size:12px;color:var(--muted)}
+.stop-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;max-height:150px;overflow-y:auto}
+.stop-chips .tchip{max-width:100%}
+.stop-chips .tchip>svg{color:var(--accent);flex:none}
+.add-stop{align-self:flex-start;font-size:13px;font-weight:600;color:var(--accent);padding:6px 2px}
+.ev-stops{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:3px}
+.ev-stops li{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.ev-stops li span{width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;color:var(--cc);border:1.5px solid var(--cc);flex:none}
