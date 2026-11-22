@@ -356,7 +356,7 @@ export function WishSheet({ trip, id }: { trip: Trip; id?: string }) {
       </div>
       <input className="inp" placeholder="이름 (예: 이치란 라멘 시부야)" value={title} onChange={(e) => (setTitle(e.target.value), setErr(false))} aria-invalid={err} autoComplete="off" />
       {err && <p className="err">이름이나 링크 중 하나는 있어야 해요.</p>}
-      <CatChips value={type} onChange={setType} keys={['food', 'sight', 'shop', 'station', 'bus', 'stay', 'etc']} label={(c) => (c === 'food' ? '음식집' : CATS[c])} />
+      <CatChips value={type} onChange={setType} keys={['food', 'sight', 'shop', 'station', 'bus', 'flight', 'stay', 'etc']} label={(c) => (c === 'food' ? '음식집' : CATS[c])} />
       <PlaceField
         trip={trip}
         id="wsPlace"
