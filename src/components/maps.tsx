@@ -416,12 +416,21 @@ function km(a: [number, number], b: Geo) {
   return 2 * R * Math.asin(Math.sqrt(x));
 }
 
+/** 지도 장소 목록처럼 보이는 파일인지 (저장 목록 CSV, 지도 GeoJSON) */
+function looksLikePlaces(t: string, name: string): boolean {
+  if (/\.csv$/i.test(name) || !/^\s*[[{]/.test(t)) {
+    const first = t.split(/\r?\n/).find((l) => l.trim()) ?? '';
+    return /(^|,)\s*"?(title|제목|name|이름)"?\s*(,|$)/i.test(first) || /google\.[a-z.]+\/maps|maps\.app\.goo\.gl/.test(t);
+  }
+  return t.includes('"features"') || t.includes('"Title"');
+}
+
 function readFile(text: string, name: string): Omit<Cand, 'on'>[] {
   const out: Omit<Cand, 'on'>[] = [];
   if (/\.csv$/i.test(name) || !text.trim().startsWith('{')) {
     const rows = parseCSV(text);
     const head = rows[0]?.map((h) => h.trim().toLowerCase()) ?? [];
-    const ti = head.findIndex((h) => h === 'title' || h === '제목');
+    const ti = head.findIndex((h) => ['title', '제목', 'name', '이름'].includes(h.replace(/"/g, '')));
     const ni = head.findIndex((h) => h === 'note' || h === '메모');
     const ui = head.findIndex((h) => h === 'url');
     for (const r of rows.slice(1)) {
@@ -455,17 +464,30 @@ export function ImportSheet({ trip }: { trip: Trip }) {
     setErr('');
     try {
       const texts: [string, string][] = [];
+      const seenFiles: string[] = [];
       for (const f of Array.from(files)) {
-        if (/\.zip$/i.test(f.name)) {
+        const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
+        // 폰에서는 파일 이름에 .zip이 안 붙어 오기도 해서 내용(PK)으로 알아봐요
+        if (head[0] === 0x50 && head[1] === 0x4b) {
           // 테이크아웃 압축 파일을 그대로 받아서 안에 있는 지도 목록만 꺼내요
           const { unzipSync, strFromU8 } = await import('fflate');
-          const all = unzipSync(new Uint8Array(await f.arrayBuffer()), { filter: (e) => /\.(csv|json|geojson)$/i.test(e.name) && !/(^|\/)\./.test(e.name) });
+          const all = unzipSync(new Uint8Array(await f.arrayBuffer()), {
+            filter: (e) => {
+              seenFiles.push(e.name);
+              return /\.(csv|json|geojson)$/i.test(e.name) && !/(^|\/)\./.test(e.name) && e.originalSize < 30e6;
+            },
+          });
           for (const [name, u8] of Object.entries(all)) {
             const t = strFromU8(u8).replace(/^\uFEFF/, '');
-            // 저장 목록 CSV(Title 열)와 지도 GeoJSON만 골라요. 다른 서비스 파일은 건너뛰어요
-            if (/\.csv$/i.test(name) ? /^\s*"?(title|제목)/i.test(t) : t.includes('"features"')) texts.push([t, name]);
+            if (looksLikePlaces(t, name)) texts.push([t, name]);
           }
-        } else texts.push([await f.text(), f.name]);
+        } else if (head[0] === 0x1f && head[1] === 0x8b) {
+          return setErr('.tgz 압축이에요. 테이크아웃에서 파일 형식을 .zip으로 골라 다시 내보내주세요.');
+        } else {
+          const t = (await f.text()).replace(/^\uFEFF/, '');
+          if (looksLikePlaces(t, f.name)) texts.push([t, f.name]);
+          else seenFiles.push(f.name);
+        }
       }
       const byName = new Map<string, Cand>();
       for (const [t, name] of texts) {
@@ -476,11 +498,18 @@ export function ImportSheet({ trip }: { trip: Trip }) {
         for (const c of got) if (!byName.has(c.name)) byName.set(c.name, { ...c, on: false });
       }
       const list = [...byName.values()];
-      if (!list.length) return setErr('여기서 장소를 찾지 못했어요. 테이크아웃 압축 파일(.zip)이나 "저장됨" 목록 CSV를 골라주세요.');
+      if (!list.length) {
+        const maps = seenFiles.filter((n) => /maps|지도|saved|저장/i.test(n));
+        return setErr(
+          seenFiles.length
+            ? `지도 목록을 찾지 못했어요. 들어 있던 파일: ${(maps.length ? maps : seenFiles).slice(0, 4).map((n) => n.split('/').pop()).join(', ')}${seenFiles.length > 4 ? ` 외 ${seenFiles.length - 4}개` : ''}. 이 화면을 캡처해서 보내주시면 맞춰 고칠게요.`
+            : '여기서 장소를 찾지 못했어요. 테이크아웃 압축 파일(.zip)이나 "저장됨" 목록 CSV를 골라주세요.',
+        );
+      }
       const seen = new Set(trip.wish.map((w) => w.title));
       setCands(list.map((c) => ({ ...c, on: !seen.has(c.name) && (!c.geo || km(center, c.geo) < 300) })));
-    } catch {
-      setErr('파일을 읽지 못했어요.');
+    } catch (e) {
+      setErr(`파일을 읽지 못했어요 (${String((e as Error)?.message ?? e).slice(0, 60)}). 이 화면을 캡처해서 보내주세요.`);
     }
   }
 
@@ -529,7 +558,7 @@ export function ImportSheet({ trip }: { trip: Trip }) {
               <li>메일로 온 <b>.zip 파일을 그대로</b> 아래에 올리기 (압축 안 풀어도 돼요)</li>
             </ol>
             <label className="dropzone">
-              <input type="file" multiple accept=".zip,.csv,.json,.geojson,application/zip,text/csv,application/json" onChange={(e) => onFile(e.target.files)} />
+              <input type="file" multiple onChange={(e) => onFile(e.target.files)} />
               <b>파일 고르기</b>ZIP · CSV · JSON
             </label>
           </details>
