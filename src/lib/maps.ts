@@ -51,10 +51,11 @@ export function resolveLink(url: string): Promise<PlaceHit | null> {
 }
 
 /** 장소 링크든 저장 목록 링크든 → 장소들 */
-export function resolveMany(url: string): Promise<{ places: PlaceHit[]; list: boolean }> {
-  return post<{ place: PlaceHit | null; list?: PlaceHit[] }>('/api/maps/resolve', { url }).then((r) =>
-    r.list ? { places: r.list, list: true } : { places: r.place ? [r.place] : [], list: false },
-  );
+export function resolveMany(url: string): Promise<{ places: PlaceHit[]; list: boolean; why?: string }> {
+  return post<{ place: PlaceHit | null; list?: PlaceHit[]; why?: string; shape?: string }>('/api/maps/resolve', { url }).then((r) => ({
+    ...(r.list ? { places: r.list, list: true } : { places: r.place ? [r.place] : [], list: false }),
+    why: r.why ? `${r.why} · ${r.shape ?? ''}` : undefined,
+  }));
 }
 
 /** 공유로 받은 글에서 구글지도 링크 찾기 */

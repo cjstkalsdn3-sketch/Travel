@@ -11,8 +11,22 @@ async function expand(url: string): Promise<string> {
     const loc = r.headers.get('location');
     if (!loc || r.status < 300 || r.status >= 400) break;
     cur = new URL(loc, cur).toString();
+    // 쿠키 동의 화면으로 보내면 원래 가려던 주소(continue)를 꺼낸다
+    const cont = consentTarget(cur);
+    if (cont) cur = cont;
   }
   return cur;
+}
+
+function consentTarget(u: string): string | null {
+  try {
+    const x = new URL(u);
+    if (!/^consent\./.test(x.hostname)) return null;
+    const c = x.searchParams.get('continue');
+    return c && ALLOWED.test(c) ? c : null;
+  } catch {
+    return null;
+  }
 }
 
 const dec = (s: string) => {
@@ -53,22 +67,23 @@ function parse(u: string): { name?: string; lat?: number; lng?: number } {
  * 공식 API가 아니라 바뀔 수 있어서, 못 읽으면 빈 배열.
  */
 async function readList(full: string): Promise<PlaceHit[] | null> {
-  const id = full.match(/placelists\/list\/([\w-]+)/)?.[1];
+  // 예전 모양: /placelists/list/<id>, 요즘 모양: data=…!11m…!2s<id>!3e3
+  const id = full.match(/placelists\/list\/([\w-]+)/)?.[1] ?? full.match(/!11m\d+!2s([\w-]{12,})/)?.[1] ?? full.match(/!2s([\w-]{12,})!3e3/)?.[1];
   if (!id) return null;
   const pb = `!1m4!1s${id}!2e1!3m1!1e1!2e2!3e2!4i500!16b1`;
   const r = await fetch(`https://www.google.com/maps/preview/entitylist/getlist?authuser=0&hl=ko&gl=kr&pb=${encodeURIComponent(pb).replace(/%21/g, '!')}`, {
     headers: { 'user-agent': 'Mozilla/5.0', 'accept-language': 'ko' },
   });
-  if (!r.ok) return [];
+  if (!r.ok) throw new Error(`list ${r.status}`);
   const txt = (await r.text()).replace(/^\)\]\}'\s*/, '');
   let data: unknown;
   try {
     data = JSON.parse(txt);
   } catch {
-    return [];
+    throw new Error('list json');
   }
   const rows = (data as unknown[][])?.[0]?.[8];
-  if (!Array.isArray(rows)) return [];
+  if (!Array.isArray(rows)) throw new Error('list shape');
   const out: PlaceHit[] = [];
   for (const row of rows) {
     // 행 안에서 [_, _, 위도, 경도] 모양과 이름(문자열)을 찾는다
@@ -98,7 +113,21 @@ export async function POST(req: Request) {
   if (!url || !ALLOWED.test(url.trim())) return new Response('구글지도 링크가 아니에요', { status: 400 });
   try {
     const full = await expand(url.trim());
-    const list = await readList(full).catch(() => []);
+    let why = '';
+    const list = await readList(full).catch((e) => {
+      why = String(e?.message ?? e);
+      return [] as PlaceHit[];
+    });
+    // 원인 찾기용: 링크가 어디로 갔는지 (경로 모양만)
+    const shape = (() => {
+      try {
+        const x = new URL(full);
+        return x.hostname + x.pathname.replace(/[^/]{24,}/g, '…').slice(0, 60) + (full.includes('!3e3') ? ' [list]' : '');
+      } catch {
+        return full.slice(0, 40);
+      }
+    })();
+    if (list && !list.length) return Response.json({ place: null, list: [], why: why || 'empty', shape });
     if (list) {
       // 좌표 못 읽은 곳은 이름으로 검색해서 채움
       const fixed = await Promise.all(
@@ -123,7 +152,7 @@ export async function POST(req: Request) {
       }
     }
     if (!place && p.lat !== undefined) place = { name: p.name ?? '', addr: '', lat: p.lat, lng: p.lng! };
-    return Response.json({ place });
+    return Response.json({ place, why: place ? undefined : 'no place', shape });
   } catch (e) {
     return new Response(String(e), { status: 502 });
   }
