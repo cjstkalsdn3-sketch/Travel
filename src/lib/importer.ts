@@ -47,13 +47,15 @@ export async function importShared(trip: Trip, text: string): Promise<ImportResu
   const url = findMapsUrl(s);
   let hits: PlaceHit[] = [];
   let list = false;
+  let why = '';
   try {
     if (url) {
       const r = await resolveMany(url);
       hits = r.places;
       list = r.list;
-      // 공유 글 첫 줄이 장소 이름이면 그걸로 다시 찾아봄
-      if (!hits.length) {
+      why = r.why ?? '';
+      // 공유 글 첫 줄이 장소 이름이면 그걸로 다시 찾아봄 (목록이면 첫 줄은 목록 이름이라 안 함)
+      if (!hits.length && !list) {
         const name = s.replace(url, '').split('\n').map((x) => x.trim()).find(Boolean);
         if (name && mapsEnabled) hits = (await searchPlaces(name, tripCenter(trip), trip.country)).slice(0, 1);
       }
@@ -65,7 +67,7 @@ export async function importShared(trip: Trip, text: string): Promise<ImportResu
   } catch {
     return { added: [], dup: 0, list, err: '장소를 읽지 못했어요. 인터넷을 확인해주세요.' };
   }
-  if (!hits.length) return { added: [], dup: 0, list, err: list ? '목록을 읽지 못했어요. 목록이 "공개" 또는 "링크가 있는 사용자"로 공유돼 있는지 확인해주세요.' : '장소를 찾지 못했어요.' };
+  if (!hits.length) return { added: [], dup: 0, list, err: list ? '목록을 읽지 못했어요. 목록이 "공개" 또는 "링크가 있는 사용자"로 공유돼 있는지 확인해주세요.' + (why ? ` (${why})` : '') : '장소를 찾지 못했어요.' + (why ? ` (${why})` : '') };
 
   const seenIds = new Set(trip.wish.map((w) => w.geo?.placeId).filter(Boolean));
   const seenNames = new Set(trip.wish.map((w) => w.title));
