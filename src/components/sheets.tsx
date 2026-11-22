@@ -3,16 +3,17 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Icon } from './Icon';
-import { CatChips, ConfirmButton, Seg, SheetHead, useCopy, useUI } from './ui';
+import { CatChips, ccStyle, ConfirmButton, Seg, SheetHead, useCopy, useUI } from './ui';
 import { PlaceField } from './maps';
 import { NearbySheet } from './Nearby';
 import { isMapsUrl, mapsEnabled, resolveLink } from '@/lib/maps';
-import { DEFAULT_STAY, isFixed, ordForInsert, unplan } from '@/lib/plan';
+import { DEFAULT_STAY, isFixed, ordForInsert, unplaced, unplan } from '@/lib/plan';
+import { kindToCat } from '@/lib/importer';
 import { AIRPORTS, CATS, COUNTRY, CUR, EXP_CATS, KR_AIRPORTS, MODES, airportName } from '@/lib/constants';
 import { liveRate } from '@/lib/fx';
 import { signOut, update, updateTrip, useData, useSession } from '@/lib/store';
 import { starterChecklist } from '@/lib/sample';
-import type { Booking, Cat, CountryCode, CurCode, Expense, Geo, Mode, PayMethod, Payer, PlanItem, Split, Trip, Wish } from '@/lib/types';
+import type { Booking, Cat, CountryCode, CurCode, Expense, Geo, Mode, PayMethod, Payer, PlanItem, Split, Stop, Trip, Wish } from '@/lib/types';
 import { compressImage, daysOf, digits, fmt, host, iso, krw, mdw, rateLabel, toK, today, uid } from '@/lib/utils';
 
 const comma = (n: number) => (n ? n.toLocaleString('ko-KR') : '');
@@ -137,6 +138,74 @@ export function ExpenseSheet({ trip, id, onSaved }: { trip: Trip; id?: string; o
   );
 }
 
+/* ================= 일정 안에 함께 들르는 곳 ================= */
+function StopsField({ trip, planId, exclude, stops, onChange }: { trip: Trip; planId?: string; exclude?: string; stops: Stop[]; onChange: (s: Stop[]) => void }) {
+  const [adding, setAdding] = useState(false);
+  const [n, setN] = useState(0);
+  const used = new Set(stops.map((x) => x.wishId));
+  // 담아둔 장소 (아직 다른 일정에 안 넣은 곳 + 이 일정에 이미 연결된 곳은 제외)
+  const waiting = unplaced(trip).filter((w) => w.id !== exclude && !used.has(w.id) && w.planId !== planId);
+  const add = (x: Stop) => onChange([...stops, x]);
+  const move = (i: number, d: number) => {
+    const a = [...stops];
+    const j = i + d;
+    if (j < 0 || j >= a.length) return;
+    [a[i], a[j]] = [a[j], a[i]];
+    onChange(a);
+  };
+  return (
+    <div className="field stops">
+      <span className="lbl">함께 들를 곳 {stops.length > 0 && <b className="cnt">{stops.length}</b>}</span>
+      {stops.length > 0 && (
+        <ol className="stop-list">
+          {stops.map((x, i) => (
+            <li key={x.id} style={ccStyle(x.type ?? 'sight')}>
+              <span className="stop-n">{i + 1}</span>
+              <span className="stop-t">
+                <b>{x.name}</b>
+                {x.geo?.addr && <small>{x.geo.addr}</small>}
+              </span>
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label="위로"><Icon name="back" size={14} /></button>
+              <button type="button" onClick={() => onChange(stops.filter((y) => y.id !== x.id))} aria-label="빼기"><Icon name="x" size={14} /></button>
+            </li>
+          ))}
+        </ol>
+      )}
+      {waiting.length > 0 && (
+        <div className="stop-pick">
+          <small>담아둔 곳에서 톡 눌러 넣기</small>
+          <div className="stop-chips">
+            {waiting.map((w) => (
+              <button key={w.id} type="button" className="tchip" style={ccStyle(w.type)} onClick={() => add({ id: uid(), name: w.title, geo: w.geo ?? null, type: w.type, wishId: w.id })}>
+                <span className="cat-ic"><Icon name={w.type} /></span>
+                <span className="tchip-t">{w.title}</span>
+                <Icon name="plus" size={13} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {adding ? (
+        <PlaceField
+          key={n}
+          trip={trip}
+          id="plStop"
+          label="장소 검색"
+          value=""
+          geo={null}
+          onChange={(pl, g, hit) => {
+            if (!hit || !g) return;
+            add({ id: uid(), name: hit.name || pl, geo: g, type: kindToCat(hit.kind) });
+            setN((k) => k + 1);
+          }}
+        />
+      ) : (
+        <button type="button" className="add-stop" onClick={() => setAdding(true)}>+ 장소 검색해서 더 넣기</button>
+      )}
+    </div>
+  );
+}
+
 /* ================= 일정 ================= */
 export function PlanSheet({
   trip,
@@ -164,6 +233,7 @@ export function PlanSheet({
   const [note, setNote] = useState(p?.note ?? fromWish?.note ?? '');
   const [geo, setGeo] = useState<Geo | null>(p?.geo ?? fromWish?.geo ?? null);
   const [stay, setStay] = useState(p?.stay !== undefined ? String(p.stay) : '');
+  const [stops, setStops] = useState<Stop[]>(p?.stops ?? []);
   const autoFixed = p ? isFixed({ ...trip, plan: trip.plan }, { ...p, type, fixed: undefined }) : type === 'flight' || type === 'stay';
   const [fixed, setFixed] = useState<boolean | undefined>(p?.fixed);
   const [err, setErr] = useState(false);
@@ -176,6 +246,7 @@ export function PlanSheet({
     const rec: Omit<PlanItem, 'id'> = { title: title.trim(), type, date, time: time || '12:00', place: place.trim(), note: note.trim(), travel, geo };
     if (stay !== '') rec.stay = digits(stay);
     if (fixed !== undefined) rec.fixed = fixed;
+    if (stops.length) rec.stops = stops;
     updateTrip(trip.id, (t) => {
       let pid = p?.id;
       const moved = !p || p.date !== date || p.time !== rec.time;
@@ -187,6 +258,7 @@ export function PlanSheet({
         // 시간이나 장소가 바뀌면 날씨를 다시 받아옴
         if (moved || geoChanged) delete it.wx;
         if (stay === '') delete it.stay;
+        if (!stops.length) delete it.stops;
         if (fixed === undefined) delete it.fixed;
         if (ord === undefined) delete it.ord;
         else it.ord = ord;
@@ -197,6 +269,16 @@ export function PlanSheet({
       if (fromWish) {
         const w = t.wish.find((x) => x.id === fromWish.id);
         if (w) w.planId = pid;
+      }
+      // 함께 들르는 곳으로 고른 담아둔 장소는 이 일정에 넣은 걸로, 뺀 건 다시 담아둔 곳으로
+      const keep = new Set(stops.map((x) => x.wishId).filter(Boolean));
+      for (const x of p?.stops ?? []) if (x.wishId && !keep.has(x.wishId)) {
+        const w = t.wish.find((y) => y.id === x.wishId);
+        if (w && w.planId === pid) w.planId = null;
+      }
+      for (const id of keep) {
+        const w = t.wish.find((y) => y.id === id);
+        if (w) w.planId = pid!;
       }
     });
     close();
@@ -229,6 +311,7 @@ export function PlanSheet({
           if (hit && !title.trim()) setTitle(hit.name);
         }}
       />
+      <StopsField trip={trip} planId={p?.id} exclude={fromWish?.id} stops={stops} onChange={setStops} />
       <div className="row2">
         <div className="field">
           <label htmlFor="plDate">날짜</label>

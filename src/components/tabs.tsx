@@ -158,6 +158,13 @@ export function PlanTab() {
                     {p.wx && <WxBadge w={p.wx} />}
                     <b>{p.title}</b>
                     {p.note && <p>{p.note}</p>}
+                    {!!p.stops?.length && (
+                      <ol className="ev-stops">
+                        {p.stops.map((st, k) => (
+                          <li key={st.id}><span>{k + 1}</span>{st.name}</li>
+                        ))}
+                      </ol>
+                    )}
                     {focus === p.id && <span className="ev-more">한 번 더 누르면 자세히 <Icon name="chev" /></span>}
                     {(p.place || bk || p.geo) && (
                       <div className="ev-meta" onClick={(e) => e.stopPropagation()}>

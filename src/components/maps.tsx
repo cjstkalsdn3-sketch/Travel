@@ -166,10 +166,14 @@ export function DayMap({
   const [ready, setReady] = useState(0);
   const [err, setErr] = useState('');
   const pts = items.map((p, i) => ({ p, i })).filter((x) => x.p.geo);
-  const sig = pts.map((x) => `${x.p.id}:${x.i}:${x.p.geo!.lat},${x.p.geo!.lng}`).join('|');
+  const stopGeo = items.some((p) => p.stops?.some((st) => st.geo));
+  const sig =
+    pts.map((x) => `${x.p.id}:${x.i}:${x.p.geo!.lat},${x.p.geo!.lng}`).join('|') +
+    '#' +
+    items.map((p) => (p.stops ?? []).map((st) => (st.geo ? `${st.geo.lat},${st.geo.lng}` : '')).join(',')).join('|');
   const [showWish, setShowWish] = useState(true);
   const wishGeo = wishes.filter((w) => w.geo).length;
-  const anyGeo = pts.length > 0 || wishGeo > 0;
+  const anyGeo = pts.length > 0 || wishGeo > 0 || stopGeo;
   const wpts = showWish ? wishes.filter((w) => w.geo) : [];
   const wsig = wpts.map((w) => `${w.id}:${w.type}:${w.title}:${w.geo!.lat},${w.geo!.lng}`).join('|');
   const wmarks = useRef(new Map<string, google.maps.Marker>());
@@ -186,7 +190,7 @@ export function DayMap({
       b.union(x);
       n++;
     }
-    const cnt = pts.length + wmarks.current.size;
+    const cnt = pts.length + wmarks.current.size + (stopGeo ? 2 : 0);
     if (!n || !cnt) return;
     if (cnt === 1) {
       mp.setCenter(b.getCenter());
@@ -214,7 +218,7 @@ export function DayMap({
         marks.current.clear();
         whole.current = null;
         setReady((n) => n + 1);
-        if (!pts.length) return;
+        if (!pts.length && !stopGeo) return;
         const bounds = new g.LatLngBounds();
         const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#C93A6E';
         pts.forEach(({ p, i }) => {
@@ -231,10 +235,30 @@ export function DayMap({
           marks.current.set(p.id, { m, n: i + 1 });
           drawn.current.push(m);
         });
+        // 일정 안에서 함께 들르는 곳: 작은 번호 핀 (예: 3-1, 3-2)
+        const sub = new g.LatLngBounds();
+        items.forEach((p, i) =>
+          (p.stops ?? []).forEach((st, k) => {
+            if (!st.geo) return;
+            const pos = { lat: st.geo.lat, lng: st.geo.lng };
+            bounds.extend(pos);
+            sub.extend(pos);
+            const m = new g.Marker({
+              map: map.current!,
+              position: pos,
+              title: `${p.title} · ${st.name}`,
+              zIndex: 2,
+              label: { text: `${i + 1}-${k + 1}`, color: accent, fontWeight: '700', fontSize: '10px' },
+              icon: { path: g.SymbolPath.CIRCLE, scale: 10, fillColor: '#fff', fillOpacity: 1, strokeColor: accent, strokeWeight: 2.5 },
+            });
+            m.addListener('click', () => pickRef.current?.(p.id));
+            drawn.current.push(m);
+          }),
+        );
         drawn.current.push(
           new g.Polyline({
             map: map.current!,
-            path: pts.map(({ p }) => ({ lat: p.geo!.lat, lng: p.geo!.lng })),
+            path: pts.flatMap(({ p }) => [{ lat: p.geo!.lat, lng: p.geo!.lng }, ...(p.stops ?? []).filter((x) => x.geo).map((x) => ({ lat: x.geo!.lat, lng: x.geo!.lng }))]),
             strokeOpacity: 0,
             icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, strokeColor: accent, scale: 3 }, offset: '0', repeat: '12px' }],
           }),

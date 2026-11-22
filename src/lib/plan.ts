@@ -214,9 +214,11 @@ export function unplan(t: Trip, id: string) {
   const it = t.plan.find((p) => p.id === id);
   if (!it) return;
   t.plan = t.plan.filter((p) => p.id !== id);
-  const w = t.wish.find((x) => x.planId === id);
-  if (w) w.planId = null;
-  else t.wish.unshift({ id: uid(), title: it.title, type: it.type, url: '', place: it.place, note: it.note, planId: null, geo: it.geo ?? null });
+  const ws = t.wish.filter((x) => x.planId === id);
+  ws.forEach((w) => (w.planId = null));
+  // 함께 들르던 곳 중 담아둔 장소에 없던 곳도 되돌림
+  for (const s of it.stops ?? []) if (!s.wishId || !t.wish.some((w) => w.id === s.wishId)) t.wish.unshift({ id: uid(), title: s.name, type: s.type ?? 'sight', url: '', place: s.name, note: '', planId: null, geo: s.geo ?? null });
+  if (!ws.some((w) => !it.stops?.some((s) => s.wishId === w.id))) t.wish.unshift({ id: uid(), title: it.title, type: it.type, url: '', place: it.place, note: it.note, planId: null, geo: it.geo ?? null });
 }
 
 /** 그날 동선에서 이동이 가장 덜 늘어나는 자리 */

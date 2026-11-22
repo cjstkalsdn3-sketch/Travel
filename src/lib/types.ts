@@ -44,6 +44,16 @@ export interface WxDay {
   done?: boolean;
 }
 
+/** 한 일정 안에서 함께 들르는 곳 */
+export interface Stop {
+  id: string;
+  name: string;
+  geo?: Geo | null;
+  type?: Cat;
+  /** 담아둔 장소에서 가져왔으면 그 id */
+  wishId?: string;
+}
+
 export interface PlanItem {
   id: string;
   date: string;
@@ -62,6 +72,8 @@ export interface PlanItem {
   stay?: number;
   /** 그 시간·장소의 날씨 */
   wx?: WxNow;
+  /** 함께 들르는 곳 (일정 하나에 여러 장소) */
+  stops?: Stop[];
 }
 
 export interface Expense {
