@@ -691,3 +691,26 @@ button.maplink{border:0;cursor:pointer;font-family:inherit}
   .v-nav.l{left:24px}
   .v-nav.r{right:24px}
 }
+
+/* ---------- 담아둔 장소: 크게 보기 + 지도 핀 ---------- */
+.tray-btn.icon{padding:7px 9px}
+.tray.big .tray-list{flex-wrap:wrap;overflow-x:hidden;overflow-y:auto;max-height:min(42vh,340px);align-content:flex-start;padding-bottom:8px}
+.tray.big .tchip{max-width:100%}
+.tchip-nogeo{color:var(--faint);font-weight:800;margin-left:-3px}
+.wish-lab{background:color-mix(in srgb,#fff 94%,transparent);padding:2px 7px;border-radius:8px;box-shadow:0 1px 4px rgba(60,20,40,.22);white-space:nowrap;transform:translateY(4px)}
+.daymap-wrap{position:relative}
+.wish-toggle{position:absolute;top:10px;left:10px;z-index:2;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:6px 11px;border-radius:99px;background:color-mix(in srgb,var(--surface) 94%,transparent);color:var(--muted);box-shadow:var(--shadow);backdrop-filter:blur(8px)}
+.wish-toggle .wt-dot{width:10px;height:10px;border-radius:50%;border:2.5px solid var(--faint);background:#fff}
+.wish-toggle.on{color:var(--accent)}
+.wish-toggle.on .wt-dot{border-color:var(--accent)}
+@media (min-width:1024px){
+  /* PC: 담아둔 장소는 항상 여러 줄로 넉넉하게 */
+  .plan.wide .tray-list{flex-wrap:wrap;overflow-x:hidden;overflow-y:auto;max-height:min(34vh,300px);align-content:flex-start;padding-bottom:8px}
+  .plan.wide .tray.big .tray-list{max-height:min(60vh,560px)}
+  .plan.wide .tchip{max-width:100%}
+  .wish-toggle{top:16px;left:16px;font-size:13px;padding:8px 14px}
+}
+.tray-grow{font-size:12px;font-weight:600;color:var(--muted);padding:6px 4px;margin-right:auto;white-space:nowrap}
+.tray-h{flex-wrap:nowrap}
+body:has(.tray.big) .fab{display:none}
+@media (min-width:1024px){body:has(.tray.big) .fab{display:flex}}
