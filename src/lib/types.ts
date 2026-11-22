@@ -117,6 +117,34 @@ export interface PlanAlt {
   links: Record<string, string>;
 }
 
+/** 여행 기록에 붙은 사진 한 장 */
+export interface Photo {
+  id: string;
+  /** 서버 저장소 경로 (원본 = path, 작은 그림 = path에 _t) */
+  path?: string;
+  /** 서버 없이 쓸 때 사진 자체 (data URL) */
+  src?: string;
+  w: number;
+  h: number;
+  /** 찍은 시각 (사진 정보에서) */
+  at?: string;
+  /** 아직 서버에 다 안 올라감 */
+  up?: boolean;
+}
+
+/** 여행 기록 한 개: 그날의 사진 여러 장 + 짧은 글 */
+export interface Memo {
+  id: string;
+  date: string;
+  by: Person;
+  text: string;
+  photos: Photo[];
+  /** 만든 시각 */
+  at: string;
+  /** 연결한 일정 (장소) */
+  planId?: string | null;
+}
+
 export interface Trip {
   id: string;
   name: string;
@@ -157,6 +185,8 @@ export interface Trip {
   book: Booking[];
   wish: Wish[];
   check: CheckItem[];
+  /** 여행 기록 (사진·일기) */
+  memo?: Memo[];
 }
 
 export interface AppData {

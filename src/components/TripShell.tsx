@@ -18,6 +18,7 @@ export const useCurrentTrip = () => useContext(TripCtx)!;
 const TABS = [
   ['', 'cal', '일정'],
   ['wish', 'heart', '가볼 곳'],
+  ['diary', 'photo', '기록'],
   ['money', 'wallet', '예산'],
   ['check', 'list', '준비물'],
   ['info', 'ticket', '예약·정보'],

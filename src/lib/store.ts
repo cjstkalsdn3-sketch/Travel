@@ -245,6 +245,8 @@ let flushing: Promise<void> | null = null;
 let again = false;
 let retry: ReturnType<typeof setTimeout> | undefined;
 let warned = false;
+/** 서버가 아직 여행 기록을 못 받음 (다시 열면 다시 시도) */
+let memoBlocked = false;
 
 async function flush(): Promise<void> {
   if (!supabase || session.status !== 'ready' || !session.coupleId) return;
@@ -260,10 +262,23 @@ async function flush(): Promise<void> {
     const dels = Object.keys(synced).filter((id) => !cur.has(id));
     const people = stable(state.people);
     try {
-      if (ups.length) {
-        const { error } = await supabase!.from('items').upsert(ups.map((r) => ({ ...r, couple_id: cid, updated_at: new Date().toISOString() })));
+      // 여행 기록은 따로 보낸다: 서버 준비(SQL)가 안 됐어도 다른 변경은 올라가게
+      const memos = ups.filter((r) => r.kind === 'memo');
+      const rest = ups.filter((r) => r.kind !== 'memo');
+      const send = (rows: Row[]) => supabase!.from('items').upsert(rows.map((r) => ({ ...r, couple_id: cid, updated_at: new Date().toISOString() })));
+      if (rest.length) {
+        const { error } = await send(rest);
         if (error) throw error;
-        for (const r of ups) synced[r.id] = rowKey(r);
+        for (const r of rest) synced[r.id] = rowKey(r);
+      }
+      if (memos.length && !memoBlocked) {
+        const { error } = await send(memos);
+        if (error?.code === '23514') {
+          // items_kind_check: 서버에 'memo' 종류가 아직 없음
+          memoBlocked = true;
+          onError?.('기록은 이 폰에만 저장했어요. 서버 설정(SQL)을 한 번 해야 같이 볼 수 있어요.');
+        } else if (error) throw error;
+        else for (const r of memos) synced[r.id] = rowKey(r);
       }
       if (dels.length) {
         const { error } = await supabase!.from('items').delete().eq('couple_id', cid).in('id', dels);
@@ -310,6 +325,9 @@ function subscribeStore(fn: () => void) {
 export function useData(): AppData {
   return useSyncExternalStore(subscribeStore, () => (start(), state), () => EMPTY);
 }
+/** 화면 밖(사진 올리기 등)에서 지금 상태 읽기 */
+export const getSession = () => session;
+
 export function useSession(): Session {
   return useSyncExternalStore(subscribeStore, () => (start(), session), () => SERVER_SESSION);
 }
