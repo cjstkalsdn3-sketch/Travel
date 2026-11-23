@@ -118,6 +118,8 @@ export interface Wish {
   note: string;
   planId: string | null;
   geo?: Geo | null;
+  /** 우선순위: 1 꼭 갈 곳, -1 시간 되면. 없으면 보통 */
+  prio?: 1 | -1;
 }
 
 /** 지금 안 쓰는 일정 안 (A안·B안). 지금 쓰는 안은 Trip.plan */
