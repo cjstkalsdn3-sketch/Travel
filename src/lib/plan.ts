@@ -298,8 +298,10 @@ export function placeBest(t: Trip, wishId: string, date: string): PlanItem | nul
 }
 
 /* ---------------- 자동 배치 ---------------- */
-/** 자동 배치에서 넣는 종류. 항공·숙소·역·버스·이동은 지도에 표시만 하는 곳이라 안 넣음 */
-const AUTO_KINDS: Cat[] = ['sight', 'food', 'shop', 'etc'];
+/** 역·정류장 기준으로 묶을 거리: 걸어서 30분쯤 */
+const NEAR_KM = 2.2;
+/** 묶음 하나가 넘지 않을 시간 (넘으면 같은 역으로 두 번 나눔) */
+const GROUP_MAX = 360;
 /** 하루를 통째로 쓰는 곳 (테마파크) */
 const WHOLE_DAY = /유니버(설|셜)|universal|USJ|디즈니|disney|레고랜드|legoland|후지큐|fuji-?q|에버랜드|롯데월드|시월드|seaworld|six flags|식스 ?플래그/i;
 const isWholeDay = (w: Pick<Wish, 'title' | 'place'>) => WHOLE_DAY.test(`${w.title} ${w.place}`);
@@ -312,7 +314,7 @@ interface Slot {
   it: PlanItem;
   isNew: boolean;
   fixed: boolean;
-  w?: Wish;
+  u?: Unit;
 }
 
 /**
@@ -358,23 +360,104 @@ function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): 
   return { at, bad };
 }
 
+/** 일정에 한 칸으로 들어갈 묶음: 역 하나 + 그 근처 장소들(함께 들를 곳), 또는 장소 하나 */
+interface Unit {
+  head: Wish;
+  /** 역 묶음일 때 함께 들를 곳 */
+  members?: Wish[];
+  /** 같은 역을 두 번째 묶음에 또 쓸 때는 역을 담아둔 곳과 연결하지 않음 */
+  headLinked: boolean;
+  geo?: Geo | null;
+}
+
 /**
  * 담아둔 장소를 여행 전체 날짜에 나눠 넣는다.
- * 1) 날마다 쓸 수 있는 시간을 잰다 (비행기 앞뒤, 원래 일정 빼고).
- * 2) 테마파크는 비어 있는 날 하루를 통째로 준다.
- * 3) 나머지는 가까운 곳끼리 한 줄로 이어서, 날마다 남은 시간에 맞게 앞에서부터 잘라 나눈다. 밥집은 하루 3곳까지.
- * 4) 그날 안에서는 시간을 매겨 보면서 이동이 짧고 밥때에 맞고 늦게 끝나지 않는 자리에 넣는다.
+ * - 고정된 일정(항공·숙소·예약)은 절대 안 움직이고, 그 사이 빈 시간에만 넣는다.
+ * - 공항은 일정의 비행기에, 숙소는 일정의 숙소에 이어 붙인다. 숙소 일정이 없으면 첫날 체크인으로 넣는다.
+ * - 역·정류장은 걸어서 30분 안의 담아둔 곳을 함께 들를 곳으로 묶어 한 칸으로 넣는다 (밥집은 밥때 맞추려고 따로).
+ * - 날마다 남은 시간에 맞게, 가까운 묶음끼리 같은 날로 나눈다. 테마파크는 빈 날 하루 통째로.
+ * - 그날 안에서는 시간을 매겨 보며 이동이 짧고 밥때가 맞고 늦게 끝나지 않는 자리에. 고정 일정에 늦게 되면 안 넣는다.
  * 시간이 모자라 못 넣은 곳은 담아둔 곳에 그대로 둔다.
  */
 export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; skipped: number } {
   const all = unplaced(t).filter((w) => !ids || ids.includes(w.id));
-  const todo = all.filter((w) => AUTO_KINDS.includes(w.type));
-  const skipped = all.length - todo.length;
   const ds = daysOf(t);
-  if (!todo.length || !ds.length) return { n: 0, left: todo.length, skipped };
-  const cost = (w: Wish) => (isWholeDay(w) ? 600 : DEFAULT_STAY[w.type] + 25);
+  if (!all.length || !ds.length) return { n: 0, left: all.length, skipped: 0 };
+  let n = 0, skipped = 0;
 
-  // 1) 날마다 쓸 수 있는 시간
+  // 공항·숙소: 일정에 있는 비행기·숙소에 이어 붙임
+  const nearest = (w: Wish, list: PlanItem[]) => [...list].sort((a, b) => (w.geo && a.geo ? km(w.geo, a.geo) : 99) - (w.geo && b.geo ? km(w.geo, b.geo) : 99))[0];
+  for (const w of all.filter((x) => x.type === 'flight')) {
+    const f = nearest(w, t.plan.filter((p) => p.type === 'flight'));
+    if (f) {
+      w.planId = f.id;
+      if (!f.geo && w.geo) f.geo = w.geo;
+      n++;
+    } else skipped++;
+  }
+  for (const w of all.filter((x) => x.type === 'stay')) {
+    const h = nearest(w, t.plan.filter((p) => p.type === 'stay'));
+    if (h && (!w.geo || !h.geo || km(w.geo, h.geo) < 1)) {
+      w.planId = h.id;
+      if (!h.geo && w.geo) h.geo = w.geo;
+      n++;
+    } else {
+      // 숙소 일정이 없으면 첫날 오후 체크인으로
+      const it = fromWish(w, ds[0]);
+      it.time = '15:00';
+      it.title = `${w.title} 체크인`;
+      t.plan.push(it);
+      writeOrder(t, [...dayItems(t, ds[0]).filter((p) => p.id !== it.id && mins(p.time) <= 15 * 60).map((p) => p.id), it.id, ...dayItems(t, ds[0]).filter((p) => p.id !== it.id && mins(p.time) > 15 * 60).map((p) => p.id)]);
+      w.planId = it.id;
+      n++;
+    }
+  }
+
+  // 역 묶음 만들기
+  const rest = all.filter((w) => !w.planId && w.type !== 'flight' && w.type !== 'stay' && w.type !== 'move');
+  const hubs = rest.filter((w) => (w.type === 'station' || w.type === 'bus') && w.geo);
+  const units: Unit[] = [];
+  const grouped = new Set<string>();
+  const byHub = new Map<string, Wish[]>();
+  for (const w of rest) {
+    if (w.type === 'station' || w.type === 'bus' || w.type === 'food' || !w.geo || isWholeDay(w)) continue;
+    let best: Wish | null = null;
+    for (const h of hubs) if (km(h.geo!, w.geo) <= NEAR_KM && (!best || km(h.geo!, w.geo) < km(best.geo!, w.geo))) best = h;
+    if (best) {
+      byHub.set(best.id, [...(byHub.get(best.id) ?? []), w]);
+      grouped.add(w.id);
+    }
+  }
+  for (const h of hubs) {
+    const ms = byHub.get(h.id) ?? [];
+    const ordered = orderStops(h.geo, ms.map((w) => ({ id: w.id, name: w.title, geo: w.geo, type: w.type, wishId: w.id }))).map((s) => ms.find((w) => w.id === s.wishId)!);
+    let cur: Wish[] = [], acc = 0, first = true;
+    const flush = () => {
+      units.push({ head: h, members: cur, headLinked: first, geo: h.geo });
+      first = false;
+      cur = [];
+      acc = 0;
+    };
+    for (const w of ordered) {
+      if (acc + 50 > GROUP_MAX && cur.length) flush();
+      cur.push(w);
+      acc += 50;
+    }
+    flush();
+  }
+  for (const w of rest) if (!grouped.has(w.id) && w.type !== 'station' && w.type !== 'bus') units.push({ head: w, headLinked: true, geo: w.geo });
+  for (const w of rest) if ((w.type === 'station' || w.type === 'bus') && !w.geo) units.push({ head: w, headLinked: true, geo: null });
+
+  const toItem = (u: Unit, date: string): PlanItem => {
+    const it = fromWish(u.head, date);
+    if (u.members?.length) it.stops = u.members.map((w) => ({ id: uid(), name: w.title, geo: w.geo ?? null, type: w.type, wishId: w.id }));
+    if (isWholeDay(u.head)) it.stay = 540;
+    return it;
+  };
+  const cost = (u: Unit) => (isWholeDay(u.head) ? 600 : stayOf(toItem(u, ds[0])) + 25);
+  const isFood = (u: Unit) => u.head.type === 'food' && !u.members?.length;
+
+  // 날마다 쓸 수 있는 시간
   const free = ds.map((d, k) => {
     const items = dayItems(t, d);
     let from = DAY_FROM, to = DAY_TO;
@@ -387,97 +470,93 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
     return Math.max(0, to - from - used);
   });
   const food = ds.map((d) => dayItems(t, d).filter((p) => p.type === 'food').length);
-  const pick: Wish[][] = ds.map(() => []);
-  const left: Wish[] = [];
+  const pick: Unit[][] = ds.map(() => []);
+  const left: Unit[] = [];
 
-  // 2) 테마파크: 가장 비어 있는 날 통째로
-  for (const w of todo.filter(isWholeDay)) {
+  // 테마파크: 가장 비어 있는 날 통째로
+  for (const u of units.filter((x) => isWholeDay(x.head))) {
     let k = -1;
     ds.forEach((_, j) => {
       if (!pick[j].length && free[j] >= 480 && (k < 0 || free[j] > free[k])) k = j;
     });
-    if (k < 0) left.push(w);
+    if (k < 0) left.push(u);
     else {
-      pick[k].push(w);
+      pick[k].push(u);
       free[k] = 0;
     }
   }
 
-  // 3) 나머지를 가까운 곳끼리 잇기 (첫날 숙소 근처에서 시작)
-  const rest = todo.filter((w) => !isWholeDay(w));
+  // 나머지를 가까운 것끼리 잇기 (숙소 근처에서 시작)
+  const pool = units.filter((u) => !isWholeDay(u.head));
   const start = t.plan.find((p) => p.type === 'stay' && p.geo)?.geo ?? t.plan.find((p) => p.geo)?.geo;
-  const withGeo = rest.filter((w) => w.geo);
-  const chain: Wish[] = [];
+  const withGeo = pool.filter((u) => u.geo);
+  const chain: Unit[] = [];
   if (withGeo.length) {
     let at: Geo = start ?? withGeo[0].geo!;
     while (withGeo.length) {
       let bi = 0;
       for (let i = 1; i < withGeo.length; i++) if (km(at, withGeo[i].geo!) < km(at, withGeo[bi].geo!)) bi = i;
-      const w = withGeo.splice(bi, 1)[0];
-      chain.push(w);
-      at = w.geo!;
+      const u = withGeo.splice(bi, 1)[0];
+      chain.push(u);
+      at = u.geo!;
     }
   }
-  chain.push(...rest.filter((w) => !w.geo));
-  // 날마다 몫: 남은 시간에 비례해서 고르게
-  const need = chain.reduce((s, w) => s + cost(w), 0);
+  chain.push(...pool.filter((u) => !u.geo));
+  const need = chain.reduce((s, u) => s + cost(u), 0);
   const total = free.reduce((s, x) => s + x, 0);
   const share = free.map((f) => (total ? Math.min(f, (need * f) / total + 40) : 0));
   let k = 0, acc = 0;
-  for (const w of chain) {
-    while (k < ds.length && acc + cost(w) > share[k] + 30) {
+  for (const u of chain) {
+    while (k < ds.length && acc + cost(u) > share[k] + 30) {
       k++;
       acc = 0;
     }
-    if (k >= ds.length) {
-      left.push(w);
+    if (k >= ds.length || (isFood(u) && food[k] >= 3)) {
+      left.push(u);
       continue;
     }
-    if (w.type === 'food' && food[k] >= 3) {
-      left.push(w);
-      continue;
-    }
-    pick[k].push(w);
-    acc += cost(w);
-    free[k] -= cost(w);
-    if (w.type === 'food') food[k]++;
+    pick[k].push(u);
+    acc += cost(u);
+    free[k] -= cost(u);
+    if (isFood(u)) food[k]++;
   }
-  // 자리 못 찾은 곳은 시간 남는 날에 한 번 더
-  for (const w of left.splice(0)) {
+  for (const u of left.splice(0)) {
     let j = -1;
     ds.forEach((_, x) => {
-      if (free[x] >= cost(w) && !(w.type === 'food' && food[x] >= 3) && !pick[x].some(isWholeDay) && (j < 0 || free[x] > free[j])) j = x;
+      if (free[x] >= cost(u) && !(isFood(u) && food[x] >= 3) && !pick[x].some((v) => isWholeDay(v.head)) && (j < 0 || free[x] > free[j])) j = x;
     });
-    if (j < 0) left.push(w);
+    if (j < 0) left.push(u);
     else {
-      pick[j].push(w);
-      free[j] -= cost(w);
-      if (w.type === 'food') food[j]++;
+      pick[j].push(u);
+      free[j] -= cost(u);
+      if (isFood(u)) food[j]++;
     }
   }
 
-  // 4) 그날 안에서 자리 잡기: 오래 머무는 곳 먼저, 밥집은 나중에
-  let n = 0;
+  // 그날 안에서 자리 잡기: 오래 머무는 것 먼저, 밥집은 나중에. 고정 일정에 늦게 되면 안 넣음
   ds.forEach((date, k) => {
     if (!pick[k].length) return;
+    const edge = { first: k === 0, last: k === ds.length - 1 };
     const seq: Slot[] = dayItems(t, date).map((p) => ({ it: p, isNew: false, fixed: isFixed(t, p) }));
-    const order = [...pick[k]].sort((a, b) => (a.type === 'food' ? 1 : 0) - (b.type === 'food' ? 1 : 0) || cost(b) - cost(a));
-    for (const w of order) {
-      const it = fromWish(w, date);
-      if (isWholeDay(w)) it.stay = 540;
+    const base = simulate(seq, edge).bad;
+    const order = [...pick[k]].sort((a, b) => (isFood(a) ? 1 : 0) - (isFood(b) ? 1 : 0) || cost(b) - cost(a));
+    for (const u of order) {
+      const it = toItem(u, date);
       let best = -1, bestBad = Infinity;
       for (let i = 0; i <= seq.length; i++) {
-        const trial = [...seq.slice(0, i), { it, isNew: true, fixed: false, w }, ...seq.slice(i)];
-        const { bad } = simulate(trial, { first: k === 0, last: k === ds.length - 1 });
+        const { bad } = simulate([...seq.slice(0, i), { it, isNew: true, fixed: false, u }, ...seq.slice(i)], edge);
         if (bad < bestBad) {
           bestBad = bad;
           best = i;
         }
       }
-      seq.splice(best, 0, { it, isNew: true, fixed: false, w });
+      if (bestBad - base >= 1000) {
+        left.push(u);
+        continue;
+      }
+      seq.splice(best, 0, { it, isNew: true, fixed: false, u });
     }
-    // 새로 넣은 곳끼리 자리 맞바꿔 보며 더 나아질 때까지
-    const edge = { first: k === 0, last: k === ds.length - 1 };
+    // 새로 넣은 것끼리 자리 맞바꿔 보며 더 나아질 때까지
     let cur = simulate(seq, edge).bad;
     for (let round = 0, better = true; better && round < 20; round++) {
       better = false;
@@ -494,25 +573,32 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
     }
     const { at } = simulate(seq);
     seq.forEach((s, i) => {
-      if (s.fixed && !s.isNew) return;
+      if (s.fixed) return;
       const tm = hhmm(Math.min(23 * 60 + 55, Math.ceil(at[i] / 5) * 5));
       if (s.isNew || tm !== s.it.time) {
         s.it.time = tm;
         delete s.it.wx;
       }
     });
-    for (let i = 0; i < seq.length; i++) {
-      const s = seq[i];
-      if (s.isNew) {
+    seq.forEach((s, i) => {
+      if (s.u) {
         t.plan.push(s.it);
-        if (s.w) s.w.planId = s.it.id;
-        n++;
+        if (s.u.headLinked) {
+          s.u.head.planId = s.it.id;
+          n++;
+        }
+        for (const w of s.u.members ?? []) {
+          w.planId = s.it.id;
+          n++;
+        }
       }
-      if (s.isNew || seq[i - 1]?.isNew) s.it.travel = null;
-    }
+      if (s.u || seq[i - 1]?.u) s.it.travel = null;
+    });
     writeOrder(t, seq.map((s) => s.it.id));
   });
-  return { n, left: left.length, skipped };
+  // 남은 수: 못 넣은 묶음 안의 장소들
+  const leftN = left.reduce((s, u) => s + (u.headLinked ? 1 : 0) + (u.members?.length ?? 0), 0);
+  return { n, left: leftN, skipped };
 }
 
 /* ---------- 일정 안 (A안·B안) ---------- */

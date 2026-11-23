@@ -277,7 +277,7 @@ export function Tray({
     const undo = snapshot(trip);
     let r = { n: 0, left: 0, skipped: 0 };
     updateTrip(trip.id, (t) => void (r = autoPlace(t)));
-    const more = [r.left ? `${r.left}곳은 시간이 모자라 남겨뒀어요` : '', r.skipped ? `항공·숙소·역 ${r.skipped}곳은 빼고` : ''].filter(Boolean).join(' · ');
+    const more = [r.left ? `${r.left}곳은 시간이 모자라 남겨뒀어요` : '', r.skipped ? `공항 ${r.skipped}곳은 비행기 일정이 없어서 남겨뒀어요` : ''].filter(Boolean).join(' · ');
     if (!r.n) return toast(more || '넣을 곳이 없어요');
     toast(`${r.n}곳을 날짜별로 배치했어요${more ? ` · ${more}` : ''}`, { label: '되돌리기', run: undo });
   }
