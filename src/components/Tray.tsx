@@ -5,9 +5,9 @@ import { Icon } from './Icon';
 import { ccStyle, SheetHead, useUI } from './ui';
 import { WishSheet } from './sheets';
 import { importShared } from '@/lib/importer';
-import { autoPlace, dayItems, placeBest, unplaced, type AutoResult } from '@/lib/plan';
-import { updateTrip, useTrip } from '@/lib/store';
-import type { Cat, Trip } from '@/lib/types';
+import { autoPlace, dayItems, placeBest, unplaced, wishScore, type AutoResult } from '@/lib/plan';
+import { updateTrip, useData, useSession, useTrip } from '@/lib/store';
+import type { Cat, Person, Trip, Wish } from '@/lib/types';
 import { daysOf, mdw, pd } from '@/lib/utils';
 import { WD } from '@/lib/constants';
 
@@ -229,7 +229,7 @@ export function Tray({
 }) {
   const { open, toast } = useUI();
   // 꼭 갈 곳 먼저, 시간 되면 갈 곳은 뒤로
-  const list = unplaced(trip).sort((a, b) => (b.prio ?? 0) - (a.prio ?? 0));
+  const list = unplaced(trip).sort((a, b) => wishScore(b) - wishScore(a));
   const [busy, setBusy] = useState(false);
   const [folded, setFolded] = useState(() => {
     try {
@@ -307,9 +307,9 @@ export function Tray({
               <ul className="tray-list">
                 {list.map((w) => (
                   <li key={w.id}>
-                    <button className={'tchip' + (w.prio === -1 ? ' maybe' : '')} style={ccStyle(w.type)} {...press({ kind: 'wish', id: w.id, title: w.title, type: w.type })} onClick={() => open(<PlaceSheet trip={trip} id={w.id} date={date} />)} onMouseEnter={() => onHover?.(w.id)} onMouseLeave={() => onHover?.(null)} onFocus={() => onHover?.(w.id)} onBlur={() => onHover?.(null)}>
+                    <button className={'tchip' + (wishScore(w) < 0 ? ' maybe' : '')} style={ccStyle(w.type)} {...press({ kind: 'wish', id: w.id, title: w.title, type: w.type })} onClick={() => open(<PlaceSheet trip={trip} id={w.id} date={date} />)} onMouseEnter={() => onHover?.(w.id)} onMouseLeave={() => onHover?.(null)} onFocus={() => onHover?.(w.id)} onBlur={() => onHover?.(null)}>
                       <span className="cat-ic"><Icon name={w.type} /></span>
-                      {w.prio === 1 && <span className="tchip-star" aria-label="꼭 갈 곳">★</span>}
+                      {wishScore(w) > 0 && <span className="tchip-star" aria-label={wishScore(w) > 1 ? '둘 다 가고 싶은 곳' : '가고 싶은 곳'}>{wishScore(w) > 1 ? '★★' : '★'}</span>}
                       <span className="tchip-t">{w.title}</span>
                       {!w.geo && <span className="tchip-nogeo" title="위치 없음">·</span>}
                     </button>
@@ -326,38 +326,52 @@ export function Tray({
   );
 }
 
-/** 칩을 톡 눌렀을 때: 날짜 골라 넣기 */
-const PRIOS: { v: 1 | 0 | -1; label: string }[] = [
-  { v: 1, label: '★ 꼭 갈 곳' },
-  { v: 0, label: '보통' },
-  { v: -1, label: '시간 되면' },
-];
-
-/** 담아둔 곳 우선순위 고르기. 자동 배치가 꼭 갈 곳부터 넣고, 시간 모자라면 '시간 되면'부터 빼요 */
+/**
+ * 담아둔 곳 우선순위: 둘이 각자 ★ (둘 다 누르면 가장 먼저), 또는 '시간 되면'.
+ * 자동 배치가 ★ 많은 곳부터 넣고, 시간 모자라면 '시간 되면'부터 빼요.
+ */
 export function PrioPick({ trip, id }: { trip: Trip; id: string }) {
+  const { people } = useData();
+  const me = useSession().me ?? 'm';
   const w = trip.wish.find((x) => x.id === id);
   if (!w) return null;
+  const stars = w.stars ?? (w.prio === 1 ? [me] : []);
+  const edit = (fn: (x: Wish) => void) =>
+    updateTrip(trip.id, (t) => {
+      const x = t.wish.find((y) => y.id === id);
+      if (x) fn(x);
+    });
+  const toggle = (who: Person) =>
+    edit((x) => {
+      const cur = new Set(x.stars ?? (x.prio === 1 ? [me] : []));
+      if (cur.has(who)) cur.delete(who);
+      else cur.add(who);
+      delete x.prio;
+      if (cur.size) x.stars = (['m', 'g'] as Person[]).filter((p) => cur.has(p));
+      else delete x.stars;
+    });
+  const order: Person[] = me === 'g' ? ['g', 'm'] : ['m', 'g'];
   return (
-    <div className="prio-pick" role="radiogroup" aria-label="우선순위">
-      {PRIOS.map((p) => (
-        <button
-          key={p.v}
-          type="button"
-          role="radio"
-          aria-checked={(w.prio ?? 0) === p.v}
-          className={'prio-' + (p.v === 1 ? 'must' : p.v === -1 ? 'maybe' : 'mid')}
-          onClick={() =>
-            updateTrip(trip.id, (t) => {
-              const x = t.wish.find((y) => y.id === id);
-              if (!x) return;
-              if (p.v) x.prio = p.v;
-              else delete x.prio;
-            })
-          }
-        >
-          {p.label}
+    <div className="prio-pick" aria-label="가고 싶은 정도">
+      {order.map((who) => (
+        <button key={who} type="button" aria-pressed={stars.includes(who)} className="prio-star" onClick={() => toggle(who)}>
+          <span aria-hidden>{stars.includes(who) ? '★' : '☆'}</span> {people[who]?.name ?? (who === 'm' ? '나' : '짝꿍')}
         </button>
       ))}
+      <button
+        type="button"
+        aria-pressed={w.prio === -1 && !stars.length}
+        className="prio-maybe"
+        onClick={() =>
+          edit((x) => {
+            delete x.stars;
+            if (x.prio === -1) delete x.prio;
+            else x.prio = -1;
+          })
+        }
+      >
+        시간 되면
+      </button>
     </div>
   );
 }

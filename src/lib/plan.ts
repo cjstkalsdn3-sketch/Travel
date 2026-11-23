@@ -298,6 +298,8 @@ export function placeBest(t: Trip, wishId: string, date: string): PlanItem | nul
 }
 
 /* ---------------- 자동 배치 ---------------- */
+/** 담아둔 곳 점수: 둘 다 ★ 2, 한 명 ★(또는 예전 '꼭 갈 곳') 1, 보통 0, 시간 되면 -1 */
+export const wishScore = (w: Pick<Wish, 'prio' | 'stars'>): number => (w.stars?.length ? Math.min(2, w.stars.length) : w.prio === 1 ? 1 : w.prio === -1 ? -1 : 0);
 /** 역·정류장 기준으로 묶을 거리: 걸어서 30분쯤 */
 const NEAR_KM = 2.2;
 /** 역 없이 장소끼리 묶을 거리: 걸어서 20분쯤 */
@@ -479,9 +481,9 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   const loose = rest.filter((w) => !grouped.has(w.id) && w.geo && !['station', 'bus', 'food'].includes(w.type) && !isWholeDay(w));
   for (;;) {
     const near = (w: Wish) => loose.filter((x) => x !== w && km(x.geo!, w.geo!) <= WALK_KM);
-    const head = [...loose].sort((a, b) => near(b).length - near(a).length || (b.prio ?? 0) - (a.prio ?? 0))[0];
+    const head = [...loose].sort((a, b) => near(b).length - near(a).length || wishScore(b) - wishScore(a))[0];
     if (!head || near(head).length < 1) break;
-    const ms = near(head).sort((a, b) => (b.prio ?? 0) - (a.prio ?? 0) || km(a.geo!, head.geo!) - km(b.geo!, head.geo!)).slice(0, Math.floor((GROUP_MAX - DEFAULT_STAY[head.type]) / 50));
+    const ms = near(head).sort((a, b) => wishScore(b) - wishScore(a) || km(a.geo!, head.geo!) - km(b.geo!, head.geo!)).slice(0, Math.floor((GROUP_MAX - DEFAULT_STAY[head.type]) / 50));
     const ordered = orderStops(head.geo, ms.map((w) => ({ id: w.id, name: w.title, geo: w.geo, type: w.type, wishId: w.id }))).map((st) => ms.find((w) => w.id === st.wishId)!);
     units.push({ head, members: ordered, headLinked: true, geo: head.geo });
     for (const w of [head, ...ms]) {
@@ -501,9 +503,9 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   const cost = (u: Unit) => (isWholeDay(u.head) ? 600 : stayOf(toItem(u, ds[0])) + 25);
   const isFood = (u: Unit) => u.head.type === 'food' && !u.members?.length;
   /** 묶음 우선순위: 안에 꼭 갈 곳이 있으면 꼭, 다 '시간 되면'이면 시간 되면 */
-  const prio = (u: Unit) => { const ws = [...(u.headLinked ? [u.head] : []), ...(u.members ?? [])]; return ws.some((w) => w.prio === 1) ? 1 : ws.length && ws.every((w) => w.prio === -1) ? -1 : 0; };
+  const prio = (u: Unit) => { const ws = [...(u.headLinked ? [u.head] : []), ...(u.members ?? [])]; return ws.length ? Math.max(...ws.map(wishScore)) : 0; };
   /** 꼭 갈 곳은 하루가 조금(2시간까지) 넘쳐도 넣음 */
-  const slack = (u: Unit) => (prio(u) === 1 ? 120 : 0);
+  const slack = (u: Unit) => (prio(u) >= 2 ? 180 : prio(u) === 1 ? 120 : 0);
 
   // 날마다 쓸 수 있는 시간
   const free = ds.map((d, k) => {
@@ -690,7 +692,7 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
       const sc = u.geo && center[x] ? km(u.geo, center[x]!) : 50 - free[x] / 60 + (planned[x] ? 100 : 0);
       // '시간 되면' 곳은 다른 지역 날에 끼워 넣지 않음
       if (u.geo && center[x] && sc > REGION_KM * 1.5 && prio(u) === -1) return;
-      if (farFrom(x, u.geo) && prio(u) !== 1) return;
+      if (farFrom(x, u.geo) && prio(u) < 1) return;
       if (sc < js) {
         js = sc;
         j = x;
@@ -738,7 +740,7 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
       .filter((x) => !seqs[x].some((s) => s.u && isWholeDay(s.u.head)))
       .filter((x) => !(isFood(u) && seqs[x].filter((s) => s.u && isFood(s.u)).length >= 3))
       .filter((x) => !(prio(u) === -1 && u.geo && center[x] && km(u.geo, center[x]!) > REGION_KM * 1.5))
-      .filter((x) => !(farFrom(x, u.geo) && prio(u) !== 1))
+      .filter((x) => !(farFrom(x, u.geo) && prio(u) < 1))
       .sort((p, q) => (u.geo && center[p] ? km(u.geo, center[p]!) : 0) - (u.geo && center[q] ? km(u.geo, center[q]!) : 0));
     if (!days.some((x) => tryPlace(x, u))) left.push(u);
   }
