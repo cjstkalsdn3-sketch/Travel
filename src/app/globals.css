@@ -494,6 +494,12 @@ body:has(.tray.folded) .fab{bottom:calc(72px + 58px + env(safe-area-inset-bottom
 .drag-ghost .cat-ic{width:28px;height:28px;flex:none}
 html.dragging,html.dragging *{user-select:none!important;-webkit-user-select:none!important;cursor:grabbing}
 .empty.hot{outline:2px dashed var(--accent);outline-offset:-2px;background:var(--accent-soft)}
+.prio-pick{display:flex;gap:6px;padding:3px;border-radius:12px;background:var(--surface-2)}
+.prio-pick button{flex:1;min-height:40px;border:0;border-radius:9px;background:transparent;color:var(--muted);font:inherit;font-size:14px;font-weight:600}
+.prio-pick button[aria-checked=true]{background:var(--surface);color:var(--fg);box-shadow:0 1px 3px rgb(0 0 0/.12)}
+.prio-pick .prio-must[aria-checked=true]{color:#C8871B}
+.tchip-star{color:#E3A21A;font-size:13px;margin-right:-2px}
+.tchip.maybe{opacity:.62}
 .daypick{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 6px}
 .toast.has-act{display:flex;align-items:center;gap:12px;padding-right:8px}
 .toast.has-act button{color:var(--accent-soft);font-weight:700;padding:4px 10px;border-radius:99px;background:color-mix(in srgb,var(--bg) 16%,transparent)}

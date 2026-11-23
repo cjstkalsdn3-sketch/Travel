@@ -6,7 +6,7 @@ import { ccStyle, SheetHead, useUI } from './ui';
 import { WishSheet } from './sheets';
 import { importShared } from '@/lib/importer';
 import { autoPlace, placeBest, unplaced } from '@/lib/plan';
-import { updateTrip } from '@/lib/store';
+import { updateTrip, useTrip } from '@/lib/store';
 import type { Cat, Trip } from '@/lib/types';
 import { daysOf, pd } from '@/lib/utils';
 import { WD } from '@/lib/constants';
@@ -228,7 +228,8 @@ export function Tray({
   onHover?: (id: string | null) => void;
 }) {
   const { open, toast } = useUI();
-  const list = unplaced(trip);
+  // 꼭 갈 곳 먼저, 시간 되면 갈 곳은 뒤로
+  const list = unplaced(trip).sort((a, b) => (b.prio ?? 0) - (a.prio ?? 0));
   const [busy, setBusy] = useState(false);
   const [folded, setFolded] = useState(() => {
     try {
@@ -311,8 +312,9 @@ export function Tray({
               <ul className="tray-list">
                 {list.map((w) => (
                   <li key={w.id}>
-                    <button className="tchip" style={ccStyle(w.type)} {...press({ kind: 'wish', id: w.id, title: w.title, type: w.type })} onClick={() => open(<PlaceSheet trip={trip} id={w.id} date={date} />)} onMouseEnter={() => onHover?.(w.id)} onMouseLeave={() => onHover?.(null)} onFocus={() => onHover?.(w.id)} onBlur={() => onHover?.(null)}>
+                    <button className={'tchip' + (w.prio === -1 ? ' maybe' : '')} style={ccStyle(w.type)} {...press({ kind: 'wish', id: w.id, title: w.title, type: w.type })} onClick={() => open(<PlaceSheet trip={trip} id={w.id} date={date} />)} onMouseEnter={() => onHover?.(w.id)} onMouseLeave={() => onHover?.(null)} onFocus={() => onHover?.(w.id)} onBlur={() => onHover?.(null)}>
                       <span className="cat-ic"><Icon name={w.type} /></span>
+                      {w.prio === 1 && <span className="tchip-star" aria-label="꼭 갈 곳">★</span>}
                       <span className="tchip-t">{w.title}</span>
                       {!w.geo && <span className="tchip-nogeo" title="위치 없음">·</span>}
                     </button>
@@ -330,8 +332,44 @@ export function Tray({
 }
 
 /** 칩을 톡 눌렀을 때: 날짜 골라 넣기 */
-export function PlaceSheet({ trip, id, date }: { trip: Trip; id: string; date: string }) {
+const PRIOS: { v: 1 | 0 | -1; label: string }[] = [
+  { v: 1, label: '★ 꼭 갈 곳' },
+  { v: 0, label: '보통' },
+  { v: -1, label: '시간 되면' },
+];
+
+/** 담아둔 곳 우선순위 고르기. 자동 배치가 꼭 갈 곳부터 넣고, 시간 모자라면 '시간 되면'부터 빼요 */
+export function PrioPick({ trip, id }: { trip: Trip; id: string }) {
+  const w = trip.wish.find((x) => x.id === id);
+  if (!w) return null;
+  return (
+    <div className="prio-pick" role="radiogroup" aria-label="우선순위">
+      {PRIOS.map((p) => (
+        <button
+          key={p.v}
+          type="button"
+          role="radio"
+          aria-checked={(w.prio ?? 0) === p.v}
+          className={'prio-' + (p.v === 1 ? 'must' : p.v === -1 ? 'maybe' : 'mid')}
+          onClick={() =>
+            updateTrip(trip.id, (t) => {
+              const x = t.wish.find((y) => y.id === id);
+              if (!x) return;
+              if (p.v) x.prio = p.v;
+              else delete x.prio;
+            })
+          }
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function PlaceSheet({ trip: trip0, id, date }: { trip: Trip; id: string; date: string }) {
   const { open, close, toast } = useUI();
+  const trip = useTrip(trip0.id) ?? trip0;
   const w = trip.wish.find((x) => x.id === id);
   if (!w) return null;
   const ds = daysOf(trip);
@@ -346,6 +384,7 @@ export function PlaceSheet({ trip, id, date }: { trip: Trip; id: string; date: s
     <>
       <SheetHead title={w.title} />
       {w.geo?.addr && <p className="sub" style={{ margin: 0 }}>{w.geo.addr}</p>}
+      <PrioPick trip={trip} id={id} />
       <p className="lbl">어느 날에 넣을까요? 그날 동선에 맞는 자리에 들어가요.</p>
       <div className="daypick">
         {ds.map((d, k) => {
