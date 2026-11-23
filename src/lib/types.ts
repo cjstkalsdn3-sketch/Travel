@@ -120,6 +120,8 @@ export interface Wish {
   geo?: Geo | null;
   /** 우선순위: 1 꼭 갈 곳, -1 시간 되면. 없으면 보통 */
   prio?: 1 | -1;
+  /** 꼭 가고 싶다고 ★ 누른 사람 (둘 다 누르면 가장 먼저) */
+  stars?: Person[];
 }
 
 /** 지금 안 쓰는 일정 안 (A안·B안). 지금 쓰는 안은 Trip.plan */
