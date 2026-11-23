@@ -1,14 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { ccStyle, SheetHead, useUI } from './ui';
 import { WishSheet } from './sheets';
 import { importShared } from '@/lib/importer';
-import { autoPlace, placeBest, unplaced } from '@/lib/plan';
+import { autoPlace, dayItems, placeBest, unplaced, type AutoResult } from '@/lib/plan';
 import { updateTrip, useTrip } from '@/lib/store';
 import type { Cat, Trip } from '@/lib/types';
-import { daysOf, pd } from '@/lib/utils';
+import { daysOf, mdw, pd } from '@/lib/utils';
 import { WD } from '@/lib/constants';
 
 /* ================= 끌어다 놓기 ================= */
@@ -275,12 +275,7 @@ export function Tray({
   }
 
   function auto() {
-    const undo = snapshot(trip);
-    let r = { n: 0, left: 0, skipped: 0 };
-    updateTrip(trip.id, (t) => void (r = autoPlace(t)));
-    const more = [r.left ? `${r.left}곳은 시간이 모자라 남겨뒀어요` : '', r.skipped ? `공항 ${r.skipped}곳은 비행기 일정이 없어서 남겨뒀어요` : ''].filter(Boolean).join(' · ');
-    if (!r.n) return toast(more || '넣을 곳이 없어요');
-    toast(`${r.n}곳을 날짜별로 배치했어요${more ? ` · ${more}` : ''}`, { label: '되돌리기', run: undo });
+    open(<AutoSheet trip={trip} />);
   }
 
   const removing = dragging?.kind === 'plan';
@@ -435,6 +430,100 @@ export function PasteSheet({ trip, initial = '', err: err0 = '' }: { trip: Trip;
       <textarea className="inp" rows={3} placeholder="https://maps.app.goo.gl/…" value={v} onChange={(e) => (setV(e.target.value), setErr(''))} autoFocus />
       {err && <p className="err">{err}</p>}
       <button className="primary" onClick={go} disabled={busy || !v.trim()}>{busy ? '읽는 중…' : '담기'}</button>
+    </>
+  );
+}
+
+const leftText = (r: AutoResult) =>
+  [r.left ? `${r.left}곳은 시간이 모자라 남겨둬요` : '', r.skipped ? `공항 ${r.skipped}곳은 비행기 일정이 없어서 남겨둬요` : ''].filter(Boolean).join(' · ');
+
+/**
+ * 자동 배치 미리보기. 바로 넣지 않고 날짜별로 어디에 뭘 넣을지 보여준다.
+ * 날마다 지역을 골라 고정하면 그 날은 그 지역으로 다시 짠다.
+ */
+export function AutoSheet({ trip: trip0 }: { trip: Trip }) {
+  const { close, toast } = useUI();
+  const trip = useTrip(trip0.id) ?? trip0;
+  const [lock, setLock] = useState<Record<string, string>>({});
+  const [pickDay, setPickDay] = useState<string | null>(null);
+  // 지역 목록은 고정 없이 한 번 짜서 얻고, 고른 지역의 가운데를 그 날 중심으로
+  const regions = useMemo(() => autoPlace(JSON.parse(JSON.stringify(trip)) as Trip).regions, [trip]);
+  const geoLock = useMemo(() => Object.fromEntries(Object.entries(lock).flatMap(([d, k]) => { const c = regions.find((g) => g.key === k)?.center; return c ? [[d, c]] : []; })), [lock, regions]);
+  const { r, days } = useMemo(() => {
+    const copy = JSON.parse(JSON.stringify(trip)) as Trip;
+    const before = new Set(trip.plan.map((p) => p.id));
+    const r = autoPlace(copy, undefined, { lock: geoLock });
+    const days = daysOf(copy).map((d) => ({ d, items: dayItems(copy, d), fresh: new Set(dayItems(copy, d).filter((p) => !before.has(p.id)).map((p) => p.id)) }));
+    return { r, days };
+  }, [trip, geoLock]);
+  const label = (key?: string) => regions.find((x) => x.key === key)?.label;
+
+  function apply() {
+    const undo = snapshot(trip);
+    let res = r;
+    updateTrip(trip.id, (t) => void (res = autoPlace(t, undefined, { lock: geoLock })));
+    close();
+    const more = leftText(res);
+    toast(res.n ? `${res.n}곳을 날짜별로 배치했어요${more ? ` · ${more}` : ''}` : more || '넣을 곳이 없어요', res.n ? { label: '되돌리기', run: undo } : undefined);
+  }
+
+  return (
+    <>
+      <SheetHead title="자동 배치 미리보기" />
+      <p className="sub" style={{ margin: 0 }}>
+        {r.n ? `담아둔 곳 ${r.n}곳을 이렇게 넣어요.` : '넣을 수 있는 곳이 없어요.'} {leftText(r)}
+        {regions.length > 1 && ' 날짜의 지역을 눌러 바꿀 수 있어요.'}
+      </p>
+      <ol className="ap-days">
+        {days.map(({ d, items, fresh }, k) => {
+          const key = lock[d] ?? r.dayRegion[d];
+          const area = !lock[d] ? trip.area?.[d]?.name : undefined;
+          return (
+            <li key={d} className={fresh.size ? '' : 'quiet'}>
+              <div className="ap-h">
+                <b>Day {k + 1}</b>
+                <small>{mdw(d)}</small>
+                {regions.length > 1 ? (
+                  <button className={'ap-reg' + (lock[d] || area ? ' on' : '')} onClick={() => setPickDay(pickDay === d ? null : d)} aria-expanded={pickDay === d}>
+                    {area ?? label(key) ?? '지역 고르기'}
+                    {(lock[d] || area) && ' 📌'}
+                    <Icon name="chev" size={14} />
+                  </button>
+                ) : (
+                  (area || key) && <span className="ap-reg plain">{area ?? label(key)}</span>
+                )}
+              </div>
+              {pickDay === d && (
+                <div className="ap-pick">
+                  {regions.map((g) => (
+                    <button key={g.key} className={'tchip' + (lock[d] === g.key ? ' on' : '')} onClick={() => { setLock({ ...lock, [d]: g.key }); setPickDay(null); }}>
+                      {g.label} <small>{g.count}곳</small>
+                    </button>
+                  ))}
+                  {lock[d] && (
+                    <button className="tchip" onClick={() => { const n = { ...lock }; delete n[d]; setLock(n); setPickDay(null); }}>
+                      알아서
+                    </button>
+                  )}
+                </div>
+              )}
+              <ul className="ap-items">
+                {items.map((p) => (
+                  <li key={p.id} className={fresh.has(p.id) ? 'new' : ''}>
+                    <time className="num">{p.time}</time>
+                    <span>
+                      {p.title}
+                      {!!p.stops?.length && <small> · {p.stops.map((x) => x.name).join(', ')}</small>}
+                    </span>
+                  </li>
+                ))}
+                {!items.length && <li className="empty">비어 있어요</li>}
+              </ul>
+            </li>
+          );
+        })}
+      </ol>
+      <button className="primary" onClick={apply} disabled={!r.n}>이대로 넣기</button>
     </>
   );
 }

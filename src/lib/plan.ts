@@ -401,10 +401,18 @@ interface Unit {
  * - 그날 안에서는 시간을 매겨 보며 이동이 짧고 밥때가 맞고 늦게 끝나지 않는 자리에. 고정 일정에 늦게 되면 안 넣는다.
  * 시간이 모자라 못 넣은 곳은 담아둔 곳에 그대로 둔다.
  */
-export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; skipped: number } {
+/** 자동 배치에서 찾은 지역 (key = 그 지역 대표 장소의 담아둔 곳 id) */
+export interface AutoRegion { key: string; label: string; count: number; center: Geo | null }
+export interface AutoResult { n: number; left: number; skipped: number; regions: AutoRegion[]; dayRegion: Record<string, string> }
+
+/** opts.lock: 날짜 → 중심 위치. 그 날은 그 근처 지역으로 짠다. 없으면 여행에 정해둔 날짜별 메인 지역(t.area) */
+export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string, Geo> } = {}): AutoResult {
+  const lock: Record<string, Geo> = {};
+  for (const [d, a] of Object.entries(t.area ?? {})) if (a.geo) lock[d] = a.geo;
+  Object.assign(lock, opts.lock ?? {});
   const all = unplaced(t).filter((w) => !ids || ids.includes(w.id));
   const ds = daysOf(t);
-  if (!all.length || !ds.length) return { n: 0, left: all.length, skipped: 0 };
+  if (!all.length || !ds.length) return { n: 0, left: all.length, skipped: 0, regions: [], dayRegion: {} };
   let n = 0, skipped = 0;
 
   // 공항·숙소: 일정에 있는 비행기·숙소에 이어 붙임
@@ -528,6 +536,18 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
     for (let j = i + 1; j < geoUnits.length; j++) if (km(geoUnits[i].geo!, geoUnits[j].geo!) <= REGION_KM) par[root(i)] = root(j);
   const regions = new Map<number, Unit[]>();
   geoUnits.forEach((u, i) => regions.set(root(i), [...(regions.get(root(i)) ?? []), u]));
+  // 지역 이름: 오래 머무는 곳 두 개로 ("기요미즈데라·후시미 이나리")
+  const regionInfo = new Map<number, AutoRegion>();
+  const unitsCount = (us: Unit[]) => us.reduce((s, u) => s + (u.headLinked ? 1 : 0) + (u.members?.length ?? 0), 0);
+  for (const [r, us] of regions) {
+    const top = [...us].sort((a, b) => stayOf(toItem(b, ds[0])) - stayOf(toItem(a, ds[0])));
+    const g = us.map((u) => u.geo!);
+    regionInfo.set(r, { key: top[0].head.id, label: top.slice(0, 2).map((u) => u.head.title).join(' · '), count: unitsCount(us), center: { lat: g.reduce((s, x) => s + x.lat, 0) / g.length, lng: g.reduce((s, x) => s + x.lng, 0) / g.length } });
+  }
+  units.filter((x) => isWholeDay(x.head)).forEach((u, i) => regionInfo.set(-1 - i, { key: u.head.id, label: u.head.title, count: 1, center: u.geo ?? null }));
+  const keyOf = (r: number) => regionInfo.get(r)?.key;
+  /** 블록이 메인 지역으로 정해둔 날 근처인가 */
+  const lockNear = (b: Block, d: string) => !!(lock[d] && b.center && km(b.center, lock[d]) <= REGION_KM * 1.5);
 
   // 하루치 묶음(블록). 큰 지역은 가까운 것끼리 이어서 며칠로 나눔
   interface Block { units: Unit[]; cost: number; center: Geo | null; whole?: boolean; region: number }
@@ -575,19 +595,24 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
   // 날마다 기준 위치: 그날 원래 있던 일정(숙소·예약 등), 없으면 비행기
   const anchor = ds.map((d) => {
     const items = dayItems(t, d).filter((p) => p.geo);
-    const g = (items.some((p) => p.type !== 'flight') ? items.filter((p) => p.type !== 'flight') : items).map((p) => p.geo!);
+    const g = (items.some((p) => !isPort(p)) ? items.filter((p) => !isPort(p)) : items).map((p) => p.geo!);
     return g.length ? { lat: g.reduce((s, x) => s + x.lat, 0) / g.length, lng: g.reduce((s, x) => s + x.lng, 0) / g.length } : null;
   });
+  // 이미 일정이 둘 이상 있는 날(예: 하코네 당일치기)은 그 동네에서 먼 곳을 끼워 넣지 않음
+  const planned = ds.map((d) => dayItems(t, d).filter((p) => p.geo && !isPort(p) && p.type !== 'stay').length >= 2);
+  const farFrom = (k: number, g?: Geo | null) => !!(planned[k] && !lock[ds[k]] && g && anchor[k] && km(g, anchor[k]!) > REGION_KM * 1.5);
   // 일정이 하나도 없는 날은 전날 마지막으로 있던 곳(잔 곳)에서 시작, 없으면 다음 날 첫 일정 근처
   const lastGeo = (d: string) => [...dayItems(t, d)].reverse().find((p) => p.geo)?.geo;
   const firstGeo = (d: string) => dayItems(t, d).find((p) => p.geo)?.geo;
   for (let k = 0; k < ds.length; k++) if (!anchor[k]) anchor[k] = (k > 0 && lastGeo(ds[k - 1])) || (k < ds.length - 1 && firstGeo(ds[k + 1])) || null;
   // 블록 → 날짜. 시간이 모자란 날은 그날 원래 일정 근처 지역으로, 하루 통째인 날은 멀리 가는 지역
   const fit = (b: Block, k: number) =>
+    (lock[ds[k]] ? (lockNear(b, ds[k]) ? -1000 : b.center ? km(b.center, lock[ds[k]]) * 300 : 100000) : ds.some((d) => lockNear(b, d)) ? 50000 : 0) +
+    (farFrom(k, b.center) ? 50000 : 0) +
     Math.max(0, b.cost - free[k]) * 2 + (b.center && anchor[k] ? km(b.center, anchor[k]!) * (free[k] < 360 ? 25 : 4) : 0) + (b.whole && free[k] < 480 ? 5000 : 0);
   const dayOf: number[] = blocks.map(() => -1);
   // 시간이 거의 없는 날(도착일 저녁 등)은 블록을 받지 않음. 넘치는 것만 나중에 들어갈 수 있음
-  const cand = ds.map((_, k) => k).filter((k) => free[k] >= 120);
+  const cand = ds.map((_, k) => k).filter((k) => free[k] >= 120 || lock[ds[k]]);
   if (!cand.length) cand.push(...ds.map((_, k) => k));
   // 날짜 수보다 블록이 많으면 꼭 갈 곳이 많은 블록부터 하루씩 받고, 나머지는 같은 지역 날에 얹음 (넘치면 남김)
   const bprio = (b: Block) => b.units.reduce((s, u) => s + prio(u) * 100, 0) + b.cost / 100;
@@ -636,7 +661,7 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
   }
 
   // 그날 시간·밥집 수에 맞게 담고, 넘치는 건 시간 남는 가까운 날로. 꼭 갈 곳 먼저, 시간 되면 갈 곳은 마지막에
-  const center = ds.map((_, k) => blocks.find((b, i) => dayOf[i] === k && own.includes(i))?.center ?? anchor[k]);
+  const center = ds.map((d, k) => lock[d] ?? blocks.find((b, i) => dayOf[i] === k && own.includes(i))?.center ?? anchor[k]);
   const over: Unit[] = [];
   const sights = ds.map(() => 0);
   const foodCap = (k: number) => Math.min(3, 1 + Math.floor(sights[k] / 2));
@@ -661,9 +686,11 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
     let j = -1, js = Infinity;
     ds.forEach((_, x) => {
       if (free[x] + slack(u) < cost(u) || (isFood(u) && food[x] >= foodCap(x)) || pick[x].some((v) => isWholeDay(v.head))) return;
-      const sc = u.geo && center[x] ? km(u.geo, center[x]!) : 50 - free[x] / 60;
+      // 위치 모르는 곳은 일정이 이미 짜인 날보다 빈 날로
+      const sc = u.geo && center[x] ? km(u.geo, center[x]!) : 50 - free[x] / 60 + (planned[x] ? 100 : 0);
       // '시간 되면' 곳은 다른 지역 날에 끼워 넣지 않음
       if (u.geo && center[x] && sc > REGION_KM * 1.5 && prio(u) === -1) return;
+      if (farFrom(x, u.geo) && prio(u) !== 1) return;
       if (sc < js) {
         js = sc;
         j = x;
@@ -711,6 +738,7 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
       .filter((x) => !seqs[x].some((s) => s.u && isWholeDay(s.u.head)))
       .filter((x) => !(isFood(u) && seqs[x].filter((s) => s.u && isFood(s.u)).length >= 3))
       .filter((x) => !(prio(u) === -1 && u.geo && center[x] && km(u.geo, center[x]!) > REGION_KM * 1.5))
+      .filter((x) => !(farFrom(x, u.geo) && prio(u) !== 1))
       .sort((p, q) => (u.geo && center[p] ? km(u.geo, center[p]!) : 0) - (u.geo && center[q] ? km(u.geo, center[q]!) : 0));
     if (!days.some((x) => tryPlace(x, u))) left.push(u);
   }
@@ -760,7 +788,13 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
   });
   // 남은 수: 못 넣은 묶음 안의 장소들
   const leftN = left.reduce((s, u) => s + (u.headLinked ? 1 : 0) + (u.members?.length ?? 0), 0);
-  return { n, left: leftN, skipped };
+  const dayRegion: Record<string, string> = {};
+  ds.forEach((d, k) => {
+    const b = blocks.find((x, i) => dayOf[i] === k && own.includes(i));
+    const key = b && keyOf(b.region);
+    if (key) dayRegion[d] = key;
+  });
+  return { n, left: leftN, skipped, regions: [...regionInfo.values()], dayRegion };
 }
 
 /* ---------- 일정 안 (A안·B안) ---------- */

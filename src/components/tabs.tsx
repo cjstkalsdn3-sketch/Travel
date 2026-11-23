@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './Icon';
 import { ccStyle, Seg, useCopy, useUI, useWide } from './ui';
-import { BookingSheet, BookingView, BudgetSheet, CashSheet, RateSheet, ExpenseSheet, PlanSheet, WishSheet } from './sheets';
+import { AreaSheet, BookingSheet, BookingView, BudgetSheet, CashSheet, RateSheet, ExpenseSheet, PlanSheet, WishSheet } from './sheets';
 import { useCurrentTrip } from './TripShell';
 import { WxBadge, WxDayPill } from './Wx';
 import { DayMap, ImportSheet, ReorderSheet, RouteSheet } from './maps';
@@ -85,13 +85,19 @@ export function PlanTab() {
           return (
             <button key={d} data-date={d} role="tab" aria-selected={k === i} className={'day' + (k === i ? ' on' : '') + (d === today() ? ' today' : '')} onClick={() => { setDay(k); setSel(null); }}>
               <small>DAY {k + 1}</small><b>{x.getDate()}</b><small>{WD[x.getDay()]}</small>
+              {t.area?.[d] && <small className="day-area">{t.area[d].name}</small>}
             </button>
           );
         })}
       </div>
       <div className="dayhead">
         <div>
-          <h2>Day {i + 1} · {mdw(date)}</h2>
+          <h2>
+            Day {i + 1} · {mdw(date)}
+            <button className={'area-chip' + (t.area?.[date] ? ' on' : '')} onClick={() => open(<AreaSheet trip={t} date={date} />)}>
+              <Icon name="sight" size={13} />{t.area?.[date]?.name ?? '메인 지역'}
+            </button>
+          </h2>
           <p className="ds">{items.length}개 일정{dayK ? ' · 이날 지출 ' + krw(dayK) : ''}</p>
         </div>
         <WxDayPill w={wx} far={far} />
