@@ -303,12 +303,14 @@ const NEAR_KM = 2.2;
 /** 묶음 하나가 넘지 않을 시간 (넘으면 같은 역으로 두 번 나눔) */
 const GROUP_MAX = 360;
 /** 한 지역으로 볼 거리 (서로 이만큼 안으로 이어지면 같은 지역) */
-const REGION_KM = 10;
+const REGION_KM = 15;
 /** 하루에 돌 수 있는 시간 */
 const FULL_DAY = 540;
 /** 하루를 통째로 쓰는 곳 (테마파크) */
 const WHOLE_DAY = /유니버(설|셜)|universal|USJ|디즈니|disney|레고랜드|legoland|후지큐|fuji-?q|에버랜드|롯데월드|시월드|seaworld|six flags|식스 ?플래그/i;
 const isWholeDay = (w: Pick<Wish, 'title' | 'place'>) => WHOLE_DAY.test(`${w.title} ${w.place}`);
+/** 공항 일정: 항공으로 적었거나, 이름·장소에 공항이 들어간 일정 ("고베 공항 (UKB)") */
+const isPort = (p: PlanItem) => p.type === 'flight' || /공항|airport|空港|\([A-Z]{3}\)/i.test(`${p.title} ${p.place}`);
 const DAY_FROM = 9 * 60 + 30, DAY_TO = 21 * 60;
 /** 비행기 앞뒤로 비워둘 시간: 내려서 입국·이동, 타기 전 공항 도착 */
 const AFTER_LANDING = 240, BEFORE_TAKEOFF = 180; // 일정의 비행기 시각은 출발 시각이라 비행시간까지 넉넉히
@@ -344,8 +346,12 @@ function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): 
       }
     }
     // 첫날 한국에서 비행기 타기 전, 마지막 날 돌아가는 비행기 뒤에는 넣지 않음
-    if (s.isNew && edge.first && !edge.last && seq.slice(seq.indexOf(s)).some((x) => x.it.type === 'flight')) bad += 5000;
-    if (s.isNew && edge.last && seq.slice(0, seq.indexOf(s)).some((x) => x.it.type === 'flight')) bad += 5000;
+    // (항공이 아니라 '기타'로 적은 공항 일정도 공항으로 봄. 첫날 공항 일정이 없으면 그날 첫 일정 전에는 안 넣음)
+    if (s.isNew && edge.first && !edge.last) {
+      const after = seq.slice(seq.indexOf(s) + 1);
+      if (seq.some((x) => isPort(x.it)) ? after.some((x) => isPort(x.it)) : !seq.slice(0, seq.indexOf(s)).some((x) => !x.isNew)) bad += 5000;
+    }
+    if (s.isNew && edge.last && !edge.first && seq.slice(0, seq.indexOf(s)).some((x) => isPort(x.it))) bad += 5000;
     if (s.isNew) {
       const fin = start + stayOf(p);
       if (fin > DAY_TO) bad += (fin - DAY_TO) * 4; // 너무 늦게까지
@@ -465,12 +471,17 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
   const free = ds.map((d, k) => {
     const items = dayItems(t, d);
     let from = DAY_FROM, to = DAY_TO;
-    for (const p of items)
-      if (p.type === 'flight') {
-        if (k === ds.length - 1 && k > 0) to = Math.min(to, mins(p.time) - BEFORE_TAKEOFF);
-        else from = Math.max(from, mins(p.time) + AFTER_LANDING);
-      }
-    const used = items.filter((p) => p.type !== 'flight').reduce((s, p) => s + stayOf(p) + (p.type === 'stay' ? 0 : 25), 0);
+    const ports = items.filter(isPort);
+    const first = k === 0 && ds.length > 1, last = k === ds.length - 1 && k > 0;
+    if (first) {
+      const p = ports[ports.length - 1];
+      if (p) from = Math.max(from, mins(p.time) + (p.type === 'flight' ? AFTER_LANDING : stayOf(p) + 30));
+      else if (items[0]) from = Math.max(from, mins(items[0].time));
+    } else if (last) {
+      const p = ports[0];
+      if (p) to = Math.min(to, mins(p.time) - (p.type === 'flight' ? BEFORE_TAKEOFF : 90));
+    } else for (const p of items.filter((x) => x.type === 'flight')) from = Math.max(from, mins(p.time) + AFTER_LANDING);
+    const used = items.filter((p) => !isPort(p) && mins(p.time) >= from && mins(p.time) < to).reduce((s, p) => s + stayOf(p) + (p.type === 'stay' ? 0 : 25), 0);
     return Math.max(0, to - from - used);
   });
   const food = ds.map((d) => dayItems(t, d).filter((p) => p.type === 'food').length);
@@ -522,7 +533,7 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
   for (const us of regions.values()) for (const p of split(us, Math.max(1, Math.ceil(sumCost(us) / FULL_DAY)))) blocks.push(mk(p));
   for (const u of units.filter((x) => isWholeDay(x.head))) blocks.push(mk([u], true));
   // 시간 있는 날이 남으면 큰 블록을 더 나눠서 고르게
-  const usable = ds.filter((_, k) => free[k] >= 120).length;
+  const usable = ds.filter((_, k) => free[k] >= 360).length; // 반나절 넘게 비는 날만 셈
   while (blocks.length < usable) {
     const big = blocks.filter((x) => !x.whole && x.units.length > 1 && x.cost >= 240).sort((p, q) => q.cost - p.cost)[0];
     if (!big) break;
@@ -539,7 +550,10 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
   const fit = (b: Block, k: number) =>
     Math.max(0, b.cost - free[k]) * 2 + (b.center && anchor[k] ? km(b.center, anchor[k]!) * (free[k] < 360 ? 25 : 4) : 0) + (b.whole && free[k] < 480 ? 5000 : 0);
   const dayOf: number[] = blocks.map(() => -1);
-  if (blocks.length <= ds.length && ds.length <= 8) {
+  // 시간이 거의 없는 날(도착일 저녁 등)은 블록을 받지 않음. 넘치는 것만 나중에 들어갈 수 있음
+  const cand = ds.map((_, k) => k).filter((k) => free[k] >= 120);
+  if (!cand.length) cand.push(...ds.map((_, k) => k));
+  if (blocks.length <= cand.length && cand.length <= 8) {
     let best = Infinity;
     const cur: number[] = [];
     const rec = (i: number, used: number, sum: number) => {
@@ -549,7 +563,7 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
         cur.forEach((k, j) => (dayOf[j] = k));
         return;
       }
-      for (let k = 0; k < ds.length; k++)
+      for (const k of cand)
         if (!(used & (1 << k))) {
           cur[i] = k;
           rec(i + 1, used | (1 << k), sum + fit(blocks[i], k));
@@ -564,7 +578,7 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
       .sort((p, q) => q[0].cost - p[0].cost)
       .forEach(([b, i]) => {
         let bk = 0, bs = Infinity;
-        ds.forEach((_, k) => {
+        cand.forEach((k) => {
           const sc = Math.max(0, b.cost - left[k]) * 2 + (b.center && anchor[k] ? km(b.center, anchor[k]!) * 4 : 0) + used[k] * 200 + (b.whole && (used[k] || left[k] < 480) ? 5000 : 0);
           if (sc < bs) {
             bs = sc;
