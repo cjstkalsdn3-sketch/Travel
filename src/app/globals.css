@@ -772,3 +772,29 @@ body:has(.tray.big) .fab{display:none}
 .area-chip.on{border-style:solid;border-color:var(--accent);color:var(--accent);background:var(--surface)}
 .day .day-area{display:block;max-width:56px;margin:1px auto 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--accent)}
 .day.on .day-area{color:inherit}
+
+/* ===== 오늘 (여행 중) ===== */
+.now{display:flex;flex-direction:column;gap:8px;margin:2px 0 4px}
+.now-tag{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;letter-spacing:.02em;color:var(--muted)}
+.now-live{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 0 var(--accent);animation:nowPulse 1.8s infinite}
+@keyframes nowPulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@media (prefers-reduced-motion:reduce){.now-live{animation:none}}
+.now-cur{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;width:100%;padding:10px 14px;border-radius:var(--r);background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--cc)}
+.now-cur .now-tag{color:var(--accent)}
+.now-cur b{font-size:15px}
+.now-cur small,.now-main small{color:var(--muted);font-size:12.5px}
+.now-next{padding:14px;border-radius:var(--r);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);display:flex;flex-direction:column;gap:10px}
+.now-main{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;width:100%}
+.now-main .now-tag{color:var(--accent-ink)}
+.now-main b{font-size:19px;line-height:1.25}
+.now-leave{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--fg)}
+.now-leave svg{width:17px;height:17px;flex:none;color:var(--accent-ink)}
+.now-leave.soon b{color:var(--accent-ink)}
+.now-leave.late b,.now-leave.late svg{color:var(--bad)}
+.now-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.now-go{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:1;min-height:46px;border-radius:999px;background:var(--accent);color:var(--accent-fg);font-weight:700;font-size:15px;text-decoration:none}
+.now-go svg{width:18px;height:18px}
+.now-end,.now-done{margin:0;padding:12px 14px;border-radius:var(--r);background:var(--surface);border:1px dashed var(--line);color:var(--muted);font-size:13.5px}
+.now-done{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.now-done b{color:var(--fg);font-size:15px}
+.now-jump{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--accent-ink);padding:6px 12px;border-radius:999px;background:var(--accent-soft);margin-top:-6px}
