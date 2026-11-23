@@ -314,6 +314,8 @@ const isPort = (p: PlanItem) => p.type === 'flight' || /공항|airport|空港|\(
 const DAY_FROM = 9 * 60 + 30, DAY_TO = 21 * 60;
 /** 비행기 앞뒤로 비워둘 시간: 내려서 입국·이동, 타기 전 공항 도착 */
 const AFTER_LANDING = 240, BEFORE_TAKEOFF = 180; // 일정의 비행기 시각은 출발 시각이라 비행시간까지 넉넉히
+/** 공항 일정(항공 말고 '기타' 등으로 적은 것) 앞뒤 여유 */
+const PORT_BEFORE = 90, PORT_AFTER = 30;
 const MEALS: [number, number][] = [[11 * 60 + 30, 14 * 60], [17 * 60 + 30, 20 * 60 + 30]];
 
 interface Slot {
@@ -337,8 +339,10 @@ function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): 
     let start: number;
     if (!prev) start = s.isNew ? DAY_FROM : mins(p.time);
     else {
-      const gap = p.type === 'flight' ? estMin(exitGeo(prev.it), p.geo) + BEFORE_TAKEOFF - 60 : estMin(exitGeo(prev.it), p.geo);
-      const ready = end + (prev.it.type === 'flight' ? AFTER_LANDING : gap);
+      // 공항 앞뒤 여유: 비행기는 타기 전 공항 도착·내린 뒤 입국, '기타'로 적은 공항 일정도 앞뒤로 조금씩 (경유할 때도)
+      const move = estMin(exitGeo(prev.it), p.geo);
+      const gap = p.type === 'flight' ? move + BEFORE_TAKEOFF - 60 : isPort(p) ? move + PORT_BEFORE : move;
+      const ready = end + (prev.it.type === 'flight' ? AFTER_LANDING : isPort(prev.it) ? gap + PORT_AFTER : gap);
       start = s.isNew ? Math.max(ready, DAY_FROM) : Math.max(ready, mins(p.time));
       if (s.fixed && ready > mins(p.time)) {
         start = mins(p.time);
@@ -352,6 +356,11 @@ function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): 
       if (seq.some((x) => isPort(x.it)) ? after.some((x) => isPort(x.it)) : !seq.slice(0, seq.indexOf(s)).some((x) => !x.isNew)) bad += 5000;
     }
     if (s.isNew && edge.last && !edge.first && seq.slice(0, seq.indexOf(s)).some((x) => isPort(x.it))) bad += 5000;
+    // 경유하는 날(공항 일정이 둘 이상): 내린 공항과 다시 타는 공항 사이에만
+    if (s.isNew && !edge.first && !edge.last && seq.filter((x) => isPort(x.it)).length >= 2) {
+      const i = seq.indexOf(s);
+      if (!seq.slice(0, i).some((x) => isPort(x.it)) || !seq.slice(i + 1).some((x) => isPort(x.it))) bad += 5000;
+    }
     if (s.isNew) {
       const fin = start + stayOf(p);
       if (fin > DAY_TO) bad += (fin - DAY_TO) * 4; // 너무 늦게까지
@@ -481,8 +490,10 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
       const p = ports[0];
       if (p) to = Math.min(to, mins(p.time) - (p.type === 'flight' ? BEFORE_TAKEOFF : 90));
     } else for (const p of items.filter((x) => x.type === 'flight')) from = Math.max(from, mins(p.time) + AFTER_LANDING);
+    // 중간에 경유하는 날: 공항 일정 앞뒤 여유만큼 빼고
+    const portGap = first || last ? 0 : items.filter(isPort).reduce((s, p) => s + (p.type === 'flight' ? 0 : PORT_BEFORE + PORT_AFTER + stayOf(p)), 0);
     const used = items.filter((p) => !isPort(p) && mins(p.time) >= from && mins(p.time) < to).reduce((s, p) => s + stayOf(p) + (p.type === 'stay' ? 0 : 25), 0);
-    return Math.max(0, to - from - used);
+    return Math.max(0, to - from - used - portGap);
   });
   const food = ds.map((d) => dayItems(t, d).filter((p) => p.type === 'food').length);
   const pick: Unit[][] = ds.map(() => []);
@@ -546,6 +557,10 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
     const g = (items.some((p) => p.type !== 'flight') ? items.filter((p) => p.type !== 'flight') : items).map((p) => p.geo!);
     return g.length ? { lat: g.reduce((s, x) => s + x.lat, 0) / g.length, lng: g.reduce((s, x) => s + x.lng, 0) / g.length } : null;
   });
+  // 일정이 하나도 없는 날은 전날 마지막으로 있던 곳(잔 곳)에서 시작, 없으면 다음 날 첫 일정 근처
+  const lastGeo = (d: string) => [...dayItems(t, d)].reverse().find((p) => p.geo)?.geo;
+  const firstGeo = (d: string) => dayItems(t, d).find((p) => p.geo)?.geo;
+  for (let k = 0; k < ds.length; k++) if (!anchor[k]) anchor[k] = (k > 0 && lastGeo(ds[k - 1])) || (k < ds.length - 1 && firstGeo(ds[k + 1])) || null;
   // 블록 → 날짜. 시간이 모자란 날은 그날 원래 일정 근처 지역으로, 하루 통째인 날은 멀리 가는 지역
   const fit = (b: Block, k: number) =>
     Math.max(0, b.cost - free[k]) * 2 + (b.center && anchor[k] ? km(b.center, anchor[k]!) * (free[k] < 360 ? 25 : 4) : 0) + (b.whole && free[k] < 480 ? 5000 : 0);
@@ -628,7 +643,7 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
   ds.forEach((date, k) => {
     if (!pick[k].length) return;
     const edge = { first: k === 0, last: k === ds.length - 1 };
-    const seq: Slot[] = dayItems(t, date).map((p) => ({ it: p, isNew: false, fixed: isFixed(t, p) }));
+    const seq: Slot[] = dayItems(t, date).map((p) => ({ it: p, isNew: false, fixed: isFixed(t, p) || isPort(p) }));
     const base = simulate(seq, edge).bad;
     const order = [...pick[k]].sort((a, b) => (isFood(a) ? 1 : 0) - (isFood(b) ? 1 : 0) || cost(b) - cost(a));
     for (const u of order) {
