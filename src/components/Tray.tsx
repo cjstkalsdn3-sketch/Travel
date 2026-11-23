@@ -275,9 +275,11 @@ export function Tray({
 
   function auto() {
     const undo = snapshot(trip);
-    let n = 0;
-    updateTrip(trip.id, (t) => void (n = autoPlace(t)));
-    toast(`${n}곳을 날짜별로 배치했어요`, { label: '되돌리기', run: undo });
+    let r = { n: 0, left: 0, skipped: 0 };
+    updateTrip(trip.id, (t) => void (r = autoPlace(t)));
+    const more = [r.left ? `${r.left}곳은 시간이 모자라 남겨뒀어요` : '', r.skipped ? `항공·숙소·역 ${r.skipped}곳은 빼고` : ''].filter(Boolean).join(' · ');
+    if (!r.n) return toast(more || '넣을 곳이 없어요');
+    toast(`${r.n}곳을 날짜별로 배치했어요${more ? ` · ${more}` : ''}`, { label: '되돌리기', run: undo });
   }
 
   const removing = dragging?.kind === 'plan';
