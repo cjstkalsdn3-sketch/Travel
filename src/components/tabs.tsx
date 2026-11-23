@@ -8,6 +8,7 @@ import { useCurrentTrip } from './TripShell';
 import { WxBadge, WxDayPill } from './Wx';
 import { DayMap, ImportSheet, ReorderSheet, RouteSheet } from './maps';
 import { AltBar } from './Alts';
+import { NowCard, useTripNow } from './Today';
 import { NearbySheet } from './Nearby';
 import { PlaceSheet, snapshot, Tray, useDragBoard, type DragSrc, type Over } from './Tray';
 import { dayItems, movePlan, placeWish, unplaced, unplan } from '@/lib/plan';
@@ -28,7 +29,8 @@ export function PlanTab() {
   const t = useCurrentTrip();
   const { open, toast } = useUI();
   const ds = daysOf(t);
-  const [day, setDay] = useState(() => Math.max(0, ds.indexOf(today())));
+  const now = useTripNow(t);
+  const [day, setDay] = useState(() => Math.max(0, ds.indexOf(now.date)));
   const i = Math.min(day, ds.length - 1);
   const date = ds[i];
   const items = dayItems(t, date);
@@ -83,7 +85,7 @@ export function PlanTab() {
         {ds.map((d, k) => {
           const x = pd(d);
           return (
-            <button key={d} data-date={d} role="tab" aria-selected={k === i} className={'day' + (k === i ? ' on' : '') + (d === today() ? ' today' : '')} onClick={() => { setDay(k); setSel(null); }}>
+            <button key={d} data-date={d} role="tab" aria-selected={k === i} className={'day' + (k === i ? ' on' : '') + (d === now.date ? ' today' : '')} onClick={() => { setDay(k); setSel(null); }}>
               <small>DAY {k + 1}</small><b>{x.getDate()}</b><small>{WD[x.getDay()]}</small>
               {t.area?.[d] && <small className="day-area">{t.area[d].name}</small>}
             </button>
@@ -102,6 +104,10 @@ export function PlanTab() {
         </div>
         <WxDayPill w={wx} far={far} />
       </div>
+      {ds.includes(now.date) && date !== now.date && (
+        <button className="now-jump" onClick={() => goTo(now.date)}><span className="now-live" />오늘 일정으로</button>
+      )}
+      <NowCard trip={t} date={date} onDay={goTo} />
       {(items.length > 0 || (mapsEnabled && waiting.some((w) => w.geo))) && (
         <div className="day-acts">
           {mapsEnabled && !bigMap && (
