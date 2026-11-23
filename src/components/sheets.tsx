@@ -882,3 +882,55 @@ export function PeopleSheet() {
   );
 }
 
+
+/* ================= 날짜별 메인 지역 ================= */
+/** 이 날 주로 있을 지역 (예: 교토). 자동 배치가 이 근처 담아둔 곳으로 그 날을 채워요 */
+export function AreaSheet({ trip, date }: { trip: Trip; date: string }) {
+  const { close, toast } = useUI();
+  const cur = trip.area?.[date];
+  const [name, setName] = useState(cur?.name ?? '');
+  const [geo, setGeo] = useState<Geo | null>(cur?.geo ?? null);
+  const ds = daysOf(trip);
+  // 다른 날에 이미 정한 지역은 톡 눌러 같이 쓰기
+  const used = [...new Map(Object.entries(trip.area ?? {}).filter(([d]) => d !== date).map(([, a]) => [a.name, a])).values()];
+  function save(a: { name: string; geo?: Geo | null } | null) {
+    updateTrip(trip.id, (t) => {
+      const m = { ...(t.area ?? {}) };
+      if (a) m[date] = a;
+      else delete m[date];
+      if (Object.keys(m).length) t.area = m;
+      else delete t.area;
+    });
+    close();
+    toast(a ? `Day ${ds.indexOf(date) + 1} 메인 지역을 ${a.name}(으)로 정했어요` : '메인 지역을 지웠어요');
+  }
+  return (
+    <>
+      <SheetHead title={`Day ${ds.indexOf(date) + 1} 메인 지역`} />
+      <p className="sub" style={{ margin: 0 }}>이 날 주로 돌아다닐 동네나 도시예요. 자동 배치가 이 근처 담아둔 곳으로 하루를 채워요.</p>
+      {used.length > 0 && (
+        <div className="stop-chips">
+          {used.map((a) => (
+            <button key={a.name} type="button" className="tchip" onClick={() => save(a)}>
+              <span className="cat-ic"><Icon name="sight" /></span>
+              <span className="tchip-t">{a.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <PlaceField
+        trip={trip}
+        id="areaPlace"
+        label="지역 검색 (예: 교토, 난바, 시부야)"
+        value={name}
+        geo={geo}
+        onChange={(pl, g, hit) => {
+          setName(hit?.name ?? pl);
+          setGeo(g);
+        }}
+      />
+      <button className="primary" disabled={!name.trim() || !geo} onClick={() => save({ name: name.trim(), geo })}>정하기</button>
+      {cur && <button className="ghost-btn" onClick={() => save(null)}>메인 지역 지우기</button>}
+    </>
+  );
+}

@@ -744,3 +744,30 @@ body:has(.tray.big) .fab{display:none}
 .ev-stops{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:3px}
 .ev-stops li{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
 .ev-stops li span{width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;color:var(--cc);border:1.5px solid var(--cc);flex:none}
+
+/* 자동 배치 미리보기 */
+.ap-days{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.ap-days>li{border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--surface)}
+.ap-days>li.quiet{opacity:.7}
+.ap-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ap-h small{color:var(--muted);font-size:12px}
+.ap-reg{margin-left:auto;display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:0 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface-2);color:var(--fg);font:inherit;font-size:13px;font-weight:600;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-reg.on{border-color:var(--accent);color:var(--accent)}
+.ap-reg.plain{border:0;background:none;color:var(--muted);font-weight:500}
+.ap-reg svg{transform:rotate(90deg);flex:none}
+.ap-pick{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.ap-pick .tchip.on{outline:2px solid var(--accent)}
+.ap-pick small{color:var(--muted)}
+.ap-items{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.ap-items li{display:flex;gap:10px;font-size:14px;color:var(--muted)}
+.ap-items li.new{color:var(--fg);font-weight:600}
+.ap-items li.new time{color:var(--accent)}
+.ap-items li small{font-weight:400;color:var(--muted)}
+.ap-items li.empty{font-size:13px;color:var(--faint)}
+.ap-items time{flex:none;width:44px}
+
+/* 날짜별 메인 지역 */
+.area-chip{display:inline-flex;align-items:center;gap:3px;margin-left:8px;vertical-align:middle;min-height:28px;padding:0 9px;border:1px dashed var(--line);border-radius:999px;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:600}
+.area-chip.on{border-style:solid;border-color:var(--accent);color:var(--accent);background:var(--surface)}
+.day .day-area{display:block;max-width:56px;margin:1px auto 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--accent)}
+.day.on .day-area{color:inherit}

@@ -189,7 +189,9 @@ export interface Trip {
   rateAuto?: boolean;
   /** 환율을 마지막으로 받아온 시각 */
   rateAt?: string;
-  plan: PlanItem[];
+/** 날짜별 메인 지역 (자동 배치가 이 근처로 짬) */
+  area?: Record<string, { name: string; geo?: Geo | null }>;
+    plan: PlanItem[];
   /** 지금 쓰는 일정 안의 id·이름 (없으면 'A안' 하나뿐) */
   altId?: string;
   altName?: string;
