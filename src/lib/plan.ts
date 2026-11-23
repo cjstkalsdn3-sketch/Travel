@@ -302,6 +302,10 @@ export function placeBest(t: Trip, wishId: string, date: string): PlanItem | nul
 const NEAR_KM = 2.2;
 /** 묶음 하나가 넘지 않을 시간 (넘으면 같은 역으로 두 번 나눔) */
 const GROUP_MAX = 360;
+/** 한 지역으로 볼 거리 (서로 이만큼 안으로 이어지면 같은 지역) */
+const REGION_KM = 10;
+/** 하루에 돌 수 있는 시간 */
+const FULL_DAY = 540;
 /** 하루를 통째로 쓰는 곳 (테마파크) */
 const WHOLE_DAY = /유니버(설|셜)|universal|USJ|디즈니|disney|레고랜드|legoland|후지큐|fuji-?q|에버랜드|롯데월드|시월드|seaworld|six flags|식스 ?플래그/i;
 const isWholeDay = (w: Pick<Wish, 'title' | 'place'>) => WHOLE_DAY.test(`${w.title} ${w.place}`);
@@ -473,57 +477,130 @@ export function autoPlace(t: Trip, ids?: string[]): { n: number; left: number; s
   const pick: Unit[][] = ds.map(() => []);
   const left: Unit[] = [];
 
-  // 테마파크: 가장 비어 있는 날 통째로
-  for (const u of units.filter((x) => isWholeDay(x.head))) {
-    let k = -1;
-    ds.forEach((_, j) => {
-      if (!pick[j].length && free[j] >= 480 && (k < 0 || free[j] > free[k])) k = j;
-    });
-    if (k < 0) left.push(u);
-    else {
-      pick[k].push(u);
-      free[k] = 0;
-    }
-  }
+  // 지역 나누기: 서로 10km 안으로 이어지는 곳끼리 한 지역 (오사카 / 교토 / 나라 …)
+  const geoUnits = units.filter((u) => u.geo && !isWholeDay(u.head));
+  const par = geoUnits.map((_, i) => i);
+  const root = (i: number): number => (par[i] === i ? i : (par[i] = root(par[i])));
+  for (let i = 0; i < geoUnits.length; i++)
+    for (let j = i + 1; j < geoUnits.length; j++) if (km(geoUnits[i].geo!, geoUnits[j].geo!) <= REGION_KM) par[root(i)] = root(j);
+  const regions = new Map<number, Unit[]>();
+  geoUnits.forEach((u, i) => regions.set(root(i), [...(regions.get(root(i)) ?? []), u]));
 
-  // 나머지를 가까운 것끼리 잇기 (숙소 근처에서 시작)
-  const pool = units.filter((u) => !isWholeDay(u.head));
-  const start = t.plan.find((p) => p.type === 'stay' && p.geo)?.geo ?? t.plan.find((p) => p.geo)?.geo;
-  const withGeo = pool.filter((u) => u.geo);
-  const chain: Unit[] = [];
-  if (withGeo.length) {
-    let at: Geo = start ?? withGeo[0].geo!;
-    while (withGeo.length) {
+  // 하루치 묶음(블록). 큰 지역은 가까운 것끼리 이어서 며칠로 나눔
+  interface Block { units: Unit[]; cost: number; center: Geo | null; whole?: boolean }
+  const chainOf = (us: Unit[]) => {
+    const rest = [...us], out: Unit[] = [];
+    let at = rest.reduce((m, u) => (u.geo!.lng < m.lng ? u.geo! : m), rest[0].geo!);
+    while (rest.length) {
       let bi = 0;
-      for (let i = 1; i < withGeo.length; i++) if (km(at, withGeo[i].geo!) < km(at, withGeo[bi].geo!)) bi = i;
-      const u = withGeo.splice(bi, 1)[0];
-      chain.push(u);
+      for (let i = 1; i < rest.length; i++) if (km(at, rest[i].geo!) < km(at, rest[bi].geo!)) bi = i;
+      const u = rest.splice(bi, 1)[0];
+      out.push(u);
       at = u.geo!;
     }
-  }
-  chain.push(...pool.filter((u) => !u.geo));
-  const need = chain.reduce((s, u) => s + cost(u), 0);
-  const total = free.reduce((s, x) => s + x, 0);
-  const share = free.map((f) => (total ? Math.min(f, (need * f) / total + 40) : 0));
-  let k = 0, acc = 0;
-  for (const u of chain) {
-    while (k < ds.length && acc + cost(u) > share[k] + 30) {
-      k++;
-      acc = 0;
+    return out;
+  };
+  const sumCost = (us: Unit[]) => us.reduce((s, u) => s + cost(u), 0);
+  const split = (us: Unit[], parts: number): Unit[][] => {
+    const ch = chainOf(us), target = sumCost(us) / parts, out: Unit[][] = [[]];
+    let acc = 0;
+    for (const u of ch) {
+      if (acc >= target - cost(u) / 2 && out.length < parts && out[out.length - 1].length) {
+        out.push([]);
+        acc = 0;
+      }
+      out[out.length - 1].push(u);
+      acc += cost(u);
     }
-    if (k >= ds.length || (isFood(u) && food[k] >= 3)) {
-      left.push(u);
-      continue;
-    }
-    pick[k].push(u);
-    acc += cost(u);
-    free[k] -= cost(u);
-    if (isFood(u)) food[k]++;
+    return out;
+  };
+  const mk = (us: Unit[], whole = false): Block => {
+    const g = us.filter((u) => u.geo).map((u) => u.geo!);
+    return { units: us, cost: sumCost(us), center: g.length ? { lat: g.reduce((s, x) => s + x.lat, 0) / g.length, lng: g.reduce((s, x) => s + x.lng, 0) / g.length } : null, whole };
+  };
+  const blocks: Block[] = [];
+  for (const us of regions.values()) for (const p of split(us, Math.max(1, Math.ceil(sumCost(us) / FULL_DAY)))) blocks.push(mk(p));
+  for (const u of units.filter((x) => isWholeDay(x.head))) blocks.push(mk([u], true));
+  // 시간 있는 날이 남으면 큰 블록을 더 나눠서 고르게
+  const usable = ds.filter((_, k) => free[k] >= 120).length;
+  while (blocks.length < usable) {
+    const big = blocks.filter((x) => !x.whole && x.units.length > 1 && x.cost >= 240).sort((p, q) => q.cost - p.cost)[0];
+    if (!big) break;
+    blocks.splice(blocks.indexOf(big), 1, ...split(big.units, 2).map((us) => mk(us)));
   }
-  for (const u of left.splice(0)) {
-    let j = -1;
+
+  // 날마다 기준 위치: 그날 원래 있던 일정(숙소·예약 등), 없으면 비행기
+  const anchor = ds.map((d) => {
+    const items = dayItems(t, d).filter((p) => p.geo);
+    const g = (items.some((p) => p.type !== 'flight') ? items.filter((p) => p.type !== 'flight') : items).map((p) => p.geo!);
+    return g.length ? { lat: g.reduce((s, x) => s + x.lat, 0) / g.length, lng: g.reduce((s, x) => s + x.lng, 0) / g.length } : null;
+  });
+  // 블록 → 날짜. 시간이 모자란 날은 그날 원래 일정 근처 지역으로, 하루 통째인 날은 멀리 가는 지역
+  const fit = (b: Block, k: number) =>
+    Math.max(0, b.cost - free[k]) * 2 + (b.center && anchor[k] ? km(b.center, anchor[k]!) * (free[k] < 360 ? 25 : 4) : 0) + (b.whole && free[k] < 480 ? 5000 : 0);
+  const dayOf: number[] = blocks.map(() => -1);
+  if (blocks.length <= ds.length && ds.length <= 8) {
+    let best = Infinity;
+    const cur: number[] = [];
+    const rec = (i: number, used: number, sum: number) => {
+      if (sum >= best) return;
+      if (i === blocks.length) {
+        best = sum;
+        cur.forEach((k, j) => (dayOf[j] = k));
+        return;
+      }
+      for (let k = 0; k < ds.length; k++)
+        if (!(used & (1 << k))) {
+          cur[i] = k;
+          rec(i + 1, used | (1 << k), sum + fit(blocks[i], k));
+        }
+    };
+    rec(0, 0, 0);
+  } else {
+    const left = [...free];
+    const used = ds.map(() => 0);
+    blocks
+      .map((b, i) => [b, i] as const)
+      .sort((p, q) => q[0].cost - p[0].cost)
+      .forEach(([b, i]) => {
+        let bk = 0, bs = Infinity;
+        ds.forEach((_, k) => {
+          const sc = Math.max(0, b.cost - left[k]) * 2 + (b.center && anchor[k] ? km(b.center, anchor[k]!) * 4 : 0) + used[k] * 200 + (b.whole && (used[k] || left[k] < 480) ? 5000 : 0);
+          if (sc < bs) {
+            bs = sc;
+            bk = k;
+          }
+        });
+        dayOf[i] = bk;
+        left[bk] -= b.cost;
+        used[bk]++;
+      });
+  }
+
+  // 그날 시간·밥집 수에 맞게 담고, 넘치는 건 시간 남는 가까운 날로
+  const center = ds.map((_, k) => blocks.find((b, i) => dayOf[i] === k)?.center ?? anchor[k]);
+  const over: Unit[] = [];
+  blocks.forEach((b, i) => {
+    const k = dayOf[i];
+    for (const u of b.whole ? b.units : chainOf(b.units)) {
+      if (cost(u) > free[k] + 30 || (isFood(u) && food[k] >= 3) || (pick[k].some((v) => isWholeDay(v.head)) && !b.whole)) over.push(u);
+      else {
+        pick[k].push(u);
+        free[k] -= cost(u);
+        if (isFood(u)) food[k]++;
+      }
+    }
+  });
+  over.push(...units.filter((u) => !u.geo));
+  for (const u of over) {
+    let j = -1, js = Infinity;
     ds.forEach((_, x) => {
-      if (free[x] >= cost(u) && !(isFood(u) && food[x] >= 3) && !pick[x].some((v) => isWholeDay(v.head)) && (j < 0 || free[x] > free[j])) j = x;
+      if (free[x] < cost(u) || (isFood(u) && food[x] >= 3) || pick[x].some((v) => isWholeDay(v.head))) return;
+      const sc = u.geo && center[x] ? km(u.geo, center[x]!) : 50 - free[x] / 60;
+      if (sc < js) {
+        js = sc;
+        j = x;
+      }
     });
     if (j < 0) left.push(u);
     else {
