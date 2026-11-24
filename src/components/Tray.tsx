@@ -553,7 +553,7 @@ export function AutoSheet({ trip: trip0 }: { trip: Trip }) {
           {leftGroups.map((g) => (
             <div key={g.key} className="ap-left-g">
               <span className="ap-left-h">
-                {g.label ?? '위치 없는 곳'}
+                {g.label ?? '그 밖의 곳'}
                 {g.whole && <em>지역 통째로 빠짐</em>}
               </span>
               <small>{g.titles.join(', ')}</small>

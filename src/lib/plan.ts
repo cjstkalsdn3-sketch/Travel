@@ -188,6 +188,13 @@ export function km(a: Geo, b: Geo): number {
 }
 
 /** 대충 걸리는 이동 시간(분). 정확한 값은 동선 정리에서 구글로 다시 계산 */
+/** 점에서 선분(a–b)까지 거리(km) */
+export function segKm(p: Geo, a: Geo, b: Geo): number {
+  const kx = 111.32 * Math.cos((a.lat * Math.PI) / 180), ky = 110.57;
+  const [px, py, bx, by] = [(p.lng - a.lng) * kx, (p.lat - a.lat) * ky, (b.lng - a.lng) * kx, (b.lat - a.lat) * ky];
+  const l = bx * bx + by * by, u = l ? Math.max(0, Math.min(1, (px * bx + py * by) / l)) : 0;
+  return Math.hypot(px - u * bx, py - u * by);
+}
 export function estMin(a?: Geo | null, b?: Geo | null): number {
   if (!a || !b) return 20;
   const d = km(a, b);
@@ -375,7 +382,8 @@ function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): 
       }
       if (p.type === 'sight' && start > 17 * 60 + 30) bad += (start - (17 * 60 + 30)) * 1.5; // 구경거리는 저녁이면 닫는 곳이 많음
       if (p.type === 'sight' && start > 19 * 60 + 30) bad += 1000; // 밤늦게 구경은 넣지 않음
-    } else if (!s.fixed && start > mins(p.time)) bad += (start - mins(p.time)) * 2; // 원래 일정이 밀림
+      if (p.type !== 'food' && start > 20 * 60 + 30) bad += 1000;
+    } else if (!s.fixed && start > mins(p.time)) bad += (start - mins(p.time)) * 2 + (start - mins(p.time) > 30 ? 1000 : 0); // 원래 일정이 밀림 (30분 넘게 밀리면 안 넣음)
     at.push(start);
     end = start + stayOf(p);
     prev = s;
@@ -424,8 +432,10 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
 
   // 공항·숙소: 일정에 있는 비행기·숙소에 이어 붙임
   const nearest = (w: Wish, list: PlanItem[]) => [...list].sort((a, b) => (w.geo && a.geo ? km(w.geo, a.geo) : 99) - (w.geo && b.geo ? km(w.geo, b.geo) : 99))[0];
-  for (const w of all.filter((x) => x.type === 'flight')) {
-    const f = nearest(w, t.plan.filter((p) => p.type === 'flight'));
+  // 공항으로 담아둔 곳(이름에 공항·airport·(KIX) 등)도 비행기·공항 일정에 이어 붙임. 하루 일정 중간에 따로 넣지 않음
+  const portWish = (w: Wish) => w.type === 'flight' || /공항|airport|空港|\([A-Z]{3}\)/i.test(`${w.title} ${w.place ?? ''}`);
+  for (const w of all.filter(portWish)) {
+    const f = nearest(w, t.plan.filter(isPort));
     if (f) {
       w.planId = f.id;
       if (!f.geo && w.geo) f.geo = w.geo;
@@ -451,7 +461,7 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   }
 
   // 역 묶음 만들기
-  const rest = all.filter((w) => !w.planId && w.type !== 'flight' && w.type !== 'stay' && w.type !== 'move');
+  const rest = all.filter((w) => !w.planId && !portWish(w) && w.type !== 'stay' && w.type !== 'move');
   const hubs = rest.filter((w) => (w.type === 'station' || w.type === 'bus') && w.geo);
   const units: Unit[] = [];
   const grouped = new Set<string>();
@@ -534,9 +544,39 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   const food = ds.map((d) => dayItems(t, d).filter((p) => p.type === 'food').length);
   const pick: Unit[][] = ds.map(() => []);
   const left: Unit[] = [];
+  // 첫날·마지막 날은 공항 ↔ 숙소 가는 길: 그 길에서 얼마나 벗어나는지로 잼 (린쿠 아울렛처럼 오가는 길에 있는 곳 활용)
+  const way = ds.map((d, k): [Geo, Geo] | null => {
+    if (ds.length < 2 || (k !== 0 && k !== ds.length - 1)) return null;
+    const ports = dayItems(t, d).filter((p) => isPort(p) && p.geo);
+    const port = k === 0 ? ports[ports.length - 1] : ports[0];
+    const land = (x: string) => dayItems(t, x).filter((p) => p.geo && !isPort(p));
+    // 첫날: 그날 숙소(공항 아닌 마지막 곳) / 마지막 날: 그날 첫 곳, 없으면 전날 밤 있던 곳
+    const back = () => { for (let j = k - 1; j >= 0; j--) { const g = land(ds[j]).pop()?.geo; if (g) return g; } };
+    const fwd = () => { for (let j = 1; j < ds.length; j++) { const g = land(ds[j]).shift()?.geo; if (g) return g; } };
+    const stay = k === 0 ? (land(d).pop()?.geo ?? fwd()) : (land(d).shift()?.geo ?? back());
+    return port?.geo && stay && km(port.geo, stay) > 3 ? [port.geo, stay] : null;
+  });
+  /** 그날 기준점(또는 공항 가는 길)에서 얼마나 먼지 */
+  const offDay = (k: number, g: Geo, base: Geo | null | undefined) => (way[k] ? segKm(g, way[k]![0], way[k]![1]) : base ? km(g, base) : 0);
+  // 공항 오가는 길에 있는 곳(길에서 8km 안, 숙소 동네는 아닌 곳)은 그날 먼저 넣음
+  const onWay = new Set<Unit>();
+  for (const k of [0, ds.length - 1]) {
+    const w = way[k];
+    if (!w) continue;
+    const near = units
+      .filter((u) => u.geo && !isWholeDay(u.head) && !onWay.has(u) && segKm(u.geo, w[0], w[1]) <= 8 && km(u.geo, w[1]) > 10)
+      .sort((p, q) => prio(q) - prio(p) || segKm(p.geo!, w[0], w[1]) - segKm(q.geo!, w[0], w[1]));
+    for (const u of near)
+      if (cost(u) <= free[k] + 30 + slack(u) && !(isFood(u) && food[k] >= 1)) {
+        pick[k].push(u);
+        free[k] -= cost(u);
+        if (isFood(u)) food[k]++;
+        onWay.add(u);
+      }
+  }
 
   // 지역 나누기: 서로 10km 안으로 이어지는 곳끼리 한 지역 (오사카 / 교토 / 나라 …)
-  const geoUnits = units.filter((u) => u.geo && !isWholeDay(u.head));
+  const geoUnits = units.filter((u) => u.geo && !isWholeDay(u.head) && !onWay.has(u));
   const par = geoUnits.map((_, i) => i);
   const root = (i: number): number => (par[i] === i ? i : (par[i] = root(par[i])));
   for (let i = 0; i < geoUnits.length; i++)
@@ -616,7 +656,7 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   const fit = (b: Block, k: number) =>
     (lock[ds[k]] ? (lockNear(b, ds[k]) ? -1000 : b.center ? km(b.center, lock[ds[k]]) * 300 : 100000) : ds.some((d) => lockNear(b, d)) ? 50000 : 0) +
     (farFrom(k, b.center) ? 50000 : 0) +
-    Math.max(0, b.cost - free[k]) * 2 + (b.center && anchor[k] ? km(b.center, anchor[k]!) * (free[k] < 360 ? 25 : 4) : 0) + (b.whole && free[k] < 480 ? 5000 : 0);
+    Math.max(0, b.cost - free[k]) * 2 + (b.center && anchor[k] ? offDay(k, b.center, anchor[k]) * (free[k] < 360 ? 25 : 4) : 0) + (b.whole && free[k] < 480 ? 5000 : 0);
   const dayOf: number[] = blocks.map(() => -1);
   // 시간이 거의 없는 날(도착일 저녁 등)은 블록을 받지 않음. 넘치는 것만 나중에 들어갈 수 있음
   const cand = ds.map((_, k) => k).filter((k) => free[k] >= 120 || lock[ds[k]]);
@@ -664,7 +704,8 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
       const mine = blocks.filter((x, j) => dayOf[j] === k);
       if (mine.some((x) => x.whole)) continue;
       if (lowOnly(i) && !mine.some((x) => x.region === b.region)) continue; // '시간 되면'만 있는 곳은 같은 지역 날에만
-      const sc = (mine.some((x) => x.region === b.region) ? 0 : 1000) + (b.center && mine[0]?.center ? km(b.center, mine[0].center) : 50) - free[k] / 100;
+      const base = mine[0]?.center ?? anchor[k];
+      const sc = (mine.some((x) => x.region === b.region) ? 0 : 1000) + (b.center && (base || way[k]) ? offDay(k, b.center, base) : 50) - free[k] / 100;
       if (sc < bs) [bs, bk] = [sc, k];
     }
     dayOf[i] = bk;
@@ -697,7 +738,7 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
     ds.forEach((_, x) => {
       if (free[x] + slack(u) < cost(u) || (isFood(u) && food[x] >= foodCap(x)) || pick[x].some((v) => isWholeDay(v.head))) return;
       // 위치 모르는 곳은 일정이 이미 짜인 날보다 빈 날로
-      const sc = u.geo && center[x] ? km(u.geo, center[x]!) : 50 - free[x] / 60 + (planned[x] ? 100 : 0);
+      const sc = u.geo && center[x] ? offDay(x, u.geo, center[x]) : 50 - free[x] / 60 + (planned[x] ? 100 : 0);
       // '시간 되면' 곳은 다른 지역 날에 끼워 넣지 않음
       if (u.geo && center[x] && sc > REGION_KM * 1.5 && prio(u) === -1) return;
       if (farFrom(x, u.geo) && prio(u) < 1) return;
@@ -738,7 +779,7 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   };
   const retry: Unit[] = [];
   ds.forEach((_, k) => {
-    const order = [...pick[k]].sort((a, b) => prio(b) - prio(a) || (isFood(a) ? 1 : 0) - (isFood(b) ? 1 : 0) || cost(b) - cost(a));
+    const order = [...pick[k]].sort((a, b) => (onWay.has(b) ? 1 : 0) - (onWay.has(a) ? 1 : 0) || prio(b) - prio(a) || (isFood(a) ? 1 : 0) - (isFood(b) ? 1 : 0) || cost(b) - cost(a));
     for (const u of order) if (!tryPlace(k, u)) retry.push(u);
   });
   // 그날 못 넣은 건 가까운 다른 날에 한 번 더
@@ -749,7 +790,7 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
       .filter((x) => !(isFood(u) && seqs[x].filter((s) => s.u && isFood(s.u)).length >= 3))
       .filter((x) => !(prio(u) === -1 && u.geo && center[x] && km(u.geo, center[x]!) > REGION_KM * 1.5))
       .filter((x) => !(farFrom(x, u.geo) && prio(u) < 1))
-      .sort((p, q) => (u.geo && center[p] ? km(u.geo, center[p]!) : 0) - (u.geo && center[q] ? km(u.geo, center[q]!) : 0));
+      .sort((p, q) => (u.geo && center[p] ? offDay(p, u.geo, center[p]) : 0) - (u.geo && center[q] ? offDay(q, u.geo, center[q]) : 0));
     if (!days.some((x) => tryPlace(x, u))) left.push(u);
   }
   ds.forEach((date, k) => {
