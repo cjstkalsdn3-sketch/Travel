@@ -798,3 +798,10 @@ body:has(.tray.big) .fab{display:none}
 .now-done{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
 .now-done b{color:var(--fg);font-size:15px}
 .now-jump{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--accent-ink);padding:6px 12px;border-radius:999px;background:var(--accent-soft);margin-top:-6px}
+.ap-left{margin:4px 0 12px;padding:12px 14px;border-radius:var(--r);background:var(--surface);border:1px dashed var(--line);display:flex;flex-direction:column;gap:8px}
+.ap-left>b{font-size:14px}
+.ap-left-g{display:flex;flex-direction:column;gap:2px}
+.ap-left-h{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ap-left-h em{font-style:normal;font-size:11.5px;font-weight:700;color:var(--bad);background:var(--bad-soft);padding:1px 7px;border-radius:999px}
+.ap-left-g small{color:var(--muted);font-size:12.5px;line-height:1.4}
+.ap-left .sub{margin:0;font-size:12.5px}

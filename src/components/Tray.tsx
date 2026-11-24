@@ -471,6 +471,16 @@ export function AutoSheet({ trip: trip0 }: { trip: Trip }) {
     return { r, days };
   }, [trip, geoLock]);
   const label = (key?: string) => regions.find((x) => x.key === key)?.label;
+  // 못 넣은 곳을 지역별로. 그 지역이 한 곳도 안 들어갔으면 '통째로 빠짐'
+  const leftGroups = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const [id, key] of Object.entries(r.leftWish)) {
+      const w = trip.wish.find((x) => x.id === id);
+      if (w) m.set(key, [...(m.get(key) ?? []), w.title]);
+    }
+    return [...m].map(([key, titles]) => ({ key, titles, label: key ? label(key) : undefined, whole: !!key && titles.length >= (regions.find((x) => x.key === key)?.count ?? Infinity) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r, trip, regions]);
 
   function apply() {
     const undo = snapshot(trip);
@@ -537,6 +547,23 @@ export function AutoSheet({ trip: trip0 }: { trip: Trip }) {
           );
         })}
       </ol>
+      {leftGroups.length > 0 && (
+        <div className="ap-left">
+          <b>이번에 못 넣은 곳 {Object.keys(r.leftWish).length}곳</b>
+          {leftGroups.map((g) => (
+            <div key={g.key} className="ap-left-g">
+              <span className="ap-left-h">
+                {g.label ?? '위치 없는 곳'}
+                {g.whole && <em>지역 통째로 빠짐</em>}
+              </span>
+              <small>{g.titles.join(', ')}</small>
+            </div>
+          ))}
+          <p className="sub">
+            {leftGroups.some((g) => g.whole) ? '날짜가 모자라 빠진 지역이 있어요. 위에서 날짜의 지역을 눌러 바꾸거나, ★를 달아두면 먼저 넣어요.' : '그날 시간이 모자라 남겨둬요. ★를 달아두면 먼저 넣어요.'}
+          </p>
+        </div>
+      )}
       <button className="primary" onClick={apply} disabled={!r.n}>이대로 넣기</button>
     </>
   );

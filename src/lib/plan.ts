@@ -374,6 +374,7 @@ function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): 
         if (prev?.it.type === 'food') bad += 90; // 밥 먹고 바로 또 밥
       }
       if (p.type === 'sight' && start > 17 * 60 + 30) bad += (start - (17 * 60 + 30)) * 1.5; // 구경거리는 저녁이면 닫는 곳이 많음
+      if (p.type === 'sight' && start > 19 * 60 + 30) bad += 1000; // 밤늦게 구경은 넣지 않음
     } else if (!s.fixed && start > mins(p.time)) bad += (start - mins(p.time)) * 2; // 원래 일정이 밀림
     at.push(start);
     end = start + stayOf(p);
@@ -405,7 +406,11 @@ interface Unit {
  */
 /** 자동 배치에서 찾은 지역 (key = 그 지역 대표 장소의 담아둔 곳 id) */
 export interface AutoRegion { key: string; label: string; count: number; center: Geo | null }
-export interface AutoResult { n: number; left: number; skipped: number; regions: AutoRegion[]; dayRegion: Record<string, string> }
+export interface AutoResult {
+  n: number; left: number; skipped: number; regions: AutoRegion[]; dayRegion: Record<string, string>;
+  /** 못 넣은 곳 (담아둔 곳 id → 그 지역 key, 지역 없으면 '') */
+  leftWish: Record<string, string>;
+}
 
 /** opts.lock: 날짜 → 중심 위치. 그 날은 그 근처 지역으로 짠다. 없으면 여행에 정해둔 날짜별 메인 지역(t.area) */
 export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string, Geo> } = {}): AutoResult {
@@ -414,7 +419,7 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   Object.assign(lock, opts.lock ?? {});
   const all = unplaced(t).filter((w) => !ids || ids.includes(w.id));
   const ds = daysOf(t);
-  if (!all.length || !ds.length) return { n: 0, left: all.length, skipped: 0, regions: [], dayRegion: {} };
+  if (!all.length || !ds.length) return { n: 0, left: all.length, skipped: 0, regions: [], dayRegion: {}, leftWish: {} };
   let n = 0, skipped = 0;
 
   // 공항·숙소: 일정에 있는 비행기·숙소에 이어 붙임
@@ -618,7 +623,10 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   if (!cand.length) cand.push(...ds.map((_, k) => k));
   // 날짜 수보다 블록이 많으면 꼭 갈 곳이 많은 블록부터 하루씩 받고, 나머지는 같은 지역 날에 얹음 (넘치면 남김)
   const bprio = (b: Block) => b.units.reduce((s, u) => s + prio(u) * 100, 0) + b.cost / 100;
-  const rank = blocks.map((_, i) => i).sort((p, q) => bprio(blocks[q]) - bprio(blocks[p]));
+  const byPrio = blocks.map((_, i) => i).sort((p, q) => bprio(blocks[q]) - bprio(blocks[p]));
+  // 지역마다 먼저 하루씩: 한 지역(오사카)에 담아둔 곳이 많아도 다른 지역(교토·나라)이 통째로 빠지지 않게
+  const firstOfRegion = byPrio.filter((i, j) => byPrio.findIndex((x) => blocks[x].region === blocks[i].region) === j);
+  const rank = [...firstOfRegion, ...byPrio.filter((i) => !firstOfRegion.includes(i))];
   // '시간 되면' 곳만 있는 블록은 하루를 따로 받지 않음
   const lowOnly = (i: number) => blocks[i].units.every((u) => prio(u) === -1);
   const own = rank.filter((i) => !lowOnly(i)).slice(0, cand.length);
@@ -796,7 +804,12 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
     const key = b && keyOf(b.region);
     if (key) dayRegion[d] = key;
   });
-  return { n, left: leftN, skipped, regions: [...regionInfo.values()], dayRegion };
+  const regionOfUnit = new Map<Unit, string>();
+  for (const [r, us] of regions) for (const u of us) regionOfUnit.set(u, keyOf(r) ?? '');
+  units.filter((x) => isWholeDay(x.head)).forEach((u, i) => regionOfUnit.set(u, keyOf(-1 - i) ?? ''));
+  const leftWish: Record<string, string> = {};
+  for (const u of left) for (const w of [...(u.headLinked ? [u.head] : []), ...(u.members ?? [])]) leftWish[w.id] = regionOfUnit.get(u) ?? '';
+  return { n, left: leftN, skipped, regions: [...regionInfo.values()], dayRegion, leftWish };
 }
 
 /* ---------- 일정 안 (A안·B안) ---------- */
