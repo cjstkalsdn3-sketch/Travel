@@ -358,9 +358,9 @@ export function openOn(h: Hours, wd: number): [number, number][] {
   return out.sort((a, b) => a[0] - b[0]);
 }
 
-function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): { at: number[]; bad: number } {
+function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): { at: number[]; bad: number; late: number } {
   const at: number[] = [];
-  let bad = 0, end = -1;
+  let bad = 0, end = -1, late = 0;
   let prev: Slot | null = null;
   for (const s of seq) {
     const p = s.it;
@@ -375,6 +375,7 @@ function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): 
       if (s.fixed && ready > mins(p.time)) {
         start = mins(p.time);
         bad += 1000 + (ready - start) * 10; // 고정 일정에 늦음
+        late += ready - start;
       }
     }
     // 첫날 한국에서 비행기 타기 전, 마지막 날 돌아가는 비행기 뒤에는 넣지 않음
@@ -406,6 +407,7 @@ function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): 
       const endOK = hrs?.length ? NIGHT_TO : nightOk(p) ? NIGHT_TO : DAY_TO;
       if (fin > endOK) bad += (fin - endOK) * 4 + (fin > endOK + 30 ? 1000 : 0); // 너무 늦게까지
       if (ONSEN.test(`${p.title} ${p.place}`) && start < 17 * 60) bad += (17 * 60 - start) * 1.2; // 온천은 저녁에
+      if (ONSEN.test(`${p.title} ${p.place}`) && seq.some((x) => x !== s && ONSEN.test(`${x.it.title} ${x.it.place}`))) bad += 1000; // 온천은 하루 한 번
       if (MORNING.test(`${p.title} ${p.place}`) && start > 12 * 60) bad += (start - 12 * 60) * 3; // 대여는 오전에
       if (p.type === 'food') {
         const off = Math.min(...MEALS.map(([a, b]) => (start < a ? a - start : start > b ? start - b : 0)));
@@ -421,7 +423,7 @@ function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): 
   }
   // 이동 시간도 조금 (가까운 곳끼리 붙게)
   for (let i = 1; i < seq.length; i++) bad += estMin(exitGeo(seq[i - 1].it), seq[i].it.geo) * 0.8;
-  return { at, bad };
+  return { at, bad, late };
 }
 
 /** 일정에 한 칸으로 들어갈 묶음: 역 하나 + 그 근처 장소들(함께 들를 곳), 또는 장소 하나 */
@@ -554,6 +556,7 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   const slack = (u: Unit) => (prio(u) >= 2 ? 180 : prio(u) === 1 ? 120 : 0);
 
   // 날마다 쓸 수 있는 시간
+  const dayFrom: number[] = [], dayTo: number[] = [];
   const free = ds.map((d, k) => {
     const items = dayItems(t, d);
     let from = DAY_FROM, to = DAY_TO + 60; // 밤에 상점가·온천 등도 가니 조금 늦게까지
@@ -570,6 +573,8 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
     // 중간에 경유하는 날: 공항 일정 앞뒤 여유만큼 빼고
     const portGap = first || last ? 0 : items.filter(isPort).reduce((s, p) => s + (p.type === 'flight' ? 0 : PORT_BEFORE + PORT_AFTER + stayOf(p)), 0);
     const used = items.filter((p) => !isPort(p) && mins(p.time) >= from && mins(p.time) < to).reduce((s, p) => s + stayOf(p) + (p.type === 'stay' ? 0 : 25), 0);
+    dayFrom[k] = from;
+    dayTo[k] = to;
     return Math.max(0, to - from - used - portGap);
   });
   const food = ds.map((d) => dayItems(t, d).filter((p) => p.type === 'food').length);
@@ -687,7 +692,17 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   const fit = (b: Block, k: number) =>
     (lock[ds[k]] ? (lockNear(b, ds[k]) ? -1000 : b.center ? km(b.center, lock[ds[k]]) * 300 : 100000) : ds.some((d) => lockNear(b, d)) ? 50000 : 0) +
     (farFrom(k, b.center) ? 50000 : 0) +
-    Math.max(0, b.cost - free[k]) * 2 + (b.center && anchor[k] ? offDay(k, b.center, anchor[k]) * (free[k] < 360 ? 25 : 4) : 0) + (b.whole && free[k] < 480 ? 5000 : 0);
+    Math.max(0, b.cost - free[k]) * 2 + (b.center && anchor[k] ? offDay(k, b.center, anchor[k]) * (free[k] < 360 ? 25 : 4) : 0) + (b.whole && free[k] < 480 ? 5000 : 0) +
+    // 그날 비는 시간에 문을 안 여는 곳(예: 도착일 저녁의 오사카성)이 있으면, 꼭 갈 곳일수록 크게 피함
+    b.units.reduce((s, u) => s + (closedFor(u, k) ? 3000 * (1 + Math.max(0, prio(u))) : 0), 0) +
+    (b.units.some((u) => prio(u) >= 2) && free[k] < 360 ? 400 : 0);
+  /** 그날 비는 시간 안에 영업시간이 하나도 안 맞으면 true (영업시간 모르면 false) */
+  const closedFor = (u: Unit, k: number) => {
+    const h = u.head.hours;
+    if (!h?.length) return false;
+    const st = Math.min(stayOf(toItem(u, ds[k])), 120);
+    return !openOn(h, pd(ds[k]).getDay()).some(([o, c]) => Math.max(o, dayFrom[k]) + st <= Math.min(c, dayTo[k] + 60));
+  };
   const dayOf: number[] = blocks.map(() => -1);
   // 시간이 거의 없는 날(도착일 저녁 등)은 블록을 받지 않음. 넘치는 것만 나중에 들어갈 수 있음
   const cand = ds.map((_, k) => k).filter((k) => free[k] >= 120 || lock[ds[k]]);
@@ -791,21 +806,26 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   const edgeOf = (k: number) => ({ first: k === 0, last: k === ds.length - 1 });
   const seqs: Slot[][] = ds.map((date) => dayItems(t, date).map((p) => ({ it: p, isNew: false, fixed: isFixed(t, p) || isPort(p) })));
   const bases = seqs.map((seq, k) => simulate(seq, edgeOf(k)).bad);
+  // 원래부터 늦는 고정 일정이 있으면(예: 리무진 30분 만에 숙소) 그만큼은 봐주고, 더 늦게 만드는 자리는 안 됨
+  const lates = seqs.map((seq, k) => simulate(seq, edgeOf(k)).late);
   const tryPlace = (k: number, u: Unit): boolean => {
     const seq = seqs[k], edge = edgeOf(k);
     const it = toItem(u, ds[k]);
-    let best = -1, bestBad = Infinity;
+    let best = -1, bestBad = Infinity, bestLate = 0;
     for (let i = 0; i <= seq.length; i++) {
-      const { bad } = simulate([...seq.slice(0, i), { it, isNew: true, fixed: false, u }, ...seq.slice(i)], edge);
+      const { bad, late } = simulate([...seq.slice(0, i), { it, isNew: true, fixed: false, u }, ...seq.slice(i)], edge);
+      if (late > lates[k] + 5) continue;
       if (bad < bestBad) {
+        bestLate = late;
         bestBad = bad;
         best = i;
       }
     }
     // 고정 일정에 늦게 되면 못 넣음. '시간 되면' 곳은 하루가 많이 꼬이면 빼둠
-    if (bestBad - bases[k] >= 1000 || (prio(u) === -1 && bestBad - bases[k] > 240)) return false;
+    if (best < 0 || bestBad - bases[k] >= 1000 || (prio(u) === -1 && bestBad - bases[k] > 240)) return false;
     seq.splice(best, 0, { it, isNew: true, fixed: false, u });
     bases[k] = bestBad;
+    lates[k] = bestLate;
     return true;
   };
   const retry: Unit[] = [];
@@ -833,21 +853,29 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
       .filter((x) => !(u.geo && center[x] && km(u.geo, center[x]!) > REGION_KM * 1.5 && prio(u) < 1))
       .sort((p, q) => (u.geo && center[p] ? offDay(p, u.geo, center[p]) : 0) - (u.geo && center[q] ? offDay(q, u.geo, center[q]) : 0));
     if (days.some((x) => tryPlace(x, u))) left.splice(left.indexOf(u), 1);
+    else if (u.members?.length) {
+      // 여러 곳 묶음이 통째로 안 들어가면 하나씩 나눠서 들어가는 곳만 넣음
+      left.splice(left.indexOf(u), 1);
+      const hub = u.head.type === 'station' || u.head.type === 'bus'; // 역만 따로 가는 건 의미 없음
+      const parts: Unit[] = [...(u.headLinked && !hub ? [{ head: u.head, headLinked: true, geo: u.head.geo }] : []), ...u.members.map((w) => ({ head: w, headLinked: true, geo: w.geo }))];
+      for (const v of parts) if (!days.some((x) => tryPlace(x, v))) left.push(v);
+    }
   }
   ds.forEach((date, k) => {
     const seq = seqs[k], edge = edgeOf(k);
     if (!seq.some((s) => s.isNew)) return;
     // 새로 넣은 것끼리 자리 맞바꿔 보며 더 나아질 때까지
-    let cur = simulate(seq, edge).bad;
+    let { bad: cur, late: curLate } = simulate(seq, edge);
     for (let round = 0, better = true; better && round < 20; round++) {
       better = false;
       for (let i = 0; i < seq.length; i++)
         for (let j = i + 1; j < seq.length; j++) {
           if (!seq[i].isNew || !seq[j].isNew) continue;
           [seq[i], seq[j]] = [seq[j], seq[i]];
-          const b = simulate(seq, edge).bad;
-          if (b < cur - 1e-6) {
+          const { bad: b, late: l } = simulate(seq, edge);
+          if (b < cur - 1e-6 && l <= curLate + 5) {
             cur = b;
+            curLate = l;
             better = true;
           } else [seq[i], seq[j]] = [seq[j], seq[i]];
         }
