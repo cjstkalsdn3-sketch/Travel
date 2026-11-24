@@ -1,5 +1,5 @@
-import type { Booking, Cat, Geo, PlanItem, Stop, Trip, Wish } from './types';
-import { daysOf, mins, uid } from './utils';
+import type { Booking, Cat, Geo, Hours, PlanItem, Stop, Trip, Wish } from './types';
+import { daysOf, mins, pd, uid } from './utils';
 import { AIRPORT_CITY, COUNTRY } from './constants';
 
 /** 종류별 기본 머무는 시간(분) */
@@ -217,7 +217,7 @@ function timeAt(seq: PlanItem[], idx: number, geo: Geo | null | undefined, stay:
 }
 
 function fromWish(w: Wish, date: string): PlanItem {
-  return { id: uid(), date, time: '10:00', type: w.type, title: w.title, note: w.note, place: w.place, travel: null, geo: w.geo ?? null };
+  return { id: uid(), date, time: '10:00', type: w.type, title: w.title, note: w.note, place: w.place, travel: null, geo: w.geo ?? null, ...(w.hours ? { hours: w.hours } : {}) };
 }
 
 /** 새로 끼운 뒤 뒤쪽 일정이 겹치면 고정 아닌 것만 뒤로 민다 */
@@ -320,8 +320,18 @@ const FULL_DAY = 540;
 /** 하루를 통째로 쓰는 곳 (테마파크) */
 const WHOLE_DAY = /유니버(설|셜)|universal|USJ|디즈니|disney|레고랜드|legoland|후지큐|fuji-?q|에버랜드|롯데월드|시월드|seaworld|six flags|식스 ?플래그/i;
 const isWholeDay = (w: Pick<Wish, 'title' | 'place'>) => WHOLE_DAY.test(`${w.title} ${w.place}`);
+/** 밤에 가도 되는 곳: 상점가·시장·야경·전망대·온천 등 (밥집·쇼핑은 원래 늦게까지) */
+const NIGHT = /상점가|시장|거리|야경|전망대|스카이|타워|온천|스파|사우나|銭湯|도톤보리|돈키호테|이자카야|요코초|아케이드|쇼핑|몰|마켓|백화점|night|market|tower|onsen|spa|sky/i;
+const ONSEN = /온천|스파|사우나|銭湯|onsen|spa/i;
+/** 아침에 빌려서 하루 입고 다니는 것 (기모노 대여 등) */
+const MORNING = /렌탈|렌트|rental|대여|기모노|kimono|着物/i;
+const nightOk = (p: PlanItem) => !MORNING.test(`${p.title} ${p.place}`) && (p.type === 'food' || p.type === 'shop' || NIGHT.test(`${p.title} ${p.place}`) || !!p.stops?.some((x) => NIGHT.test(x.name)));
+/** 밤에 가도 되는 곳은 이때까지 */
+const NIGHT_TO = 22 * 60 + 30;
 /** 공항 일정: 항공으로 적었거나, 이름·장소에 공항이 들어간 일정 ("고베 공항 (UKB)") */
 const isPort = (p: PlanItem) => p.type === 'flight' || /공항|airport|空港|\([A-Z]{3}\)/i.test(`${p.title} ${p.place}`);
+/** 공항 가는 리무진 등: 마지막 날 이걸 탄 뒤로는 아무것도 안 넣음 */
+const toAirport = (p: PlanItem) => isPort(p) || /리무진|limousine|공항.?버스|airport ?bus|스카이라이너|skyliner|하루카|haruka|라피트|rapi:?t|나리타 ?익스프레스|n'?ex/i.test(`${p.title} ${p.place}`);
 const DAY_FROM = 9 * 60 + 30, DAY_TO = 21 * 60;
 /** 비행기 앞뒤로 비워둘 시간: 내려서 입국·이동, 타기 전 공항 도착 */
 const AFTER_LANDING = 240, BEFORE_TAKEOFF = 180; // 일정의 비행기 시각은 출발 시각이라 비행시간까지 넉넉히
@@ -341,6 +351,13 @@ interface Slot {
  * 새로 넣는 곳은 앞 일정이 끝나고 이동한 뒤 바로, 원래 있던 곳은 원래 시간보다 당겨지지 않게,
  * 고정된 일정(항공·숙소·예약)은 그대로. 반환: 각 시작 시각과 벌점(작을수록 좋은 하루).
  */
+/** 그 요일에 여는 시간대들 [여는, 닫는] (분). 전날 밤부터 이어지는 영업도 포함 */
+export function openOn(h: Hours, wd: number): [number, number][] {
+  const out: [number, number][] = h.filter(([d]) => d === wd).map(([, o, c]) => [o, c]);
+  for (const [d, o, c] of h) if (d === (wd + 6) % 7 && c > 1440) out.push([Math.max(0, o - 1440), c - 1440]);
+  return out.sort((a, b) => a[0] - b[0]);
+}
+
 function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): { at: number[]; bad: number } {
   const at: number[] = [];
   let bad = 0, end = -1;
@@ -366,23 +383,37 @@ function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): 
       const after = seq.slice(seq.indexOf(s) + 1);
       if (seq.some((x) => isPort(x.it)) ? after.some((x) => isPort(x.it)) : !seq.slice(0, seq.indexOf(s)).some((x) => !x.isNew)) bad += 5000;
     }
-    if (s.isNew && edge.last && !edge.first && seq.slice(0, seq.indexOf(s)).some((x) => isPort(x.it))) bad += 5000;
+    if (s.isNew && edge.last && !edge.first && seq.slice(0, seq.indexOf(s)).some((x) => toAirport(x.it))) bad += 5000;
     // 경유하는 날(공항 일정이 둘 이상): 내린 공항과 다시 타는 공항 사이에만
     if (s.isNew && !edge.first && !edge.last && seq.filter((x) => isPort(x.it)).length >= 2) {
       const i = seq.indexOf(s);
       if (!seq.slice(0, i).some((x) => isPort(x.it)) || !seq.slice(i + 1).some((x) => isPort(x.it))) bad += 5000;
     }
+    // 구글 영업시간을 알면 그걸로: 쉬는 날엔 안 넣고, 열기 전이면 열 때까지 기다리고, 닫기 전에 다 못 보면 안 넣음
+    const hrs = s.isNew && p.hours?.length ? openOn(p.hours, pd(p.date).getDay()) : null;
+    if (hrs) {
+      const st = stayOf(p);
+      const slot = hrs.find(([o, c]) => c > start && Math.max(start, o) + Math.min(st, c - o) <= c);
+      if (!hrs.length) bad += 5000;
+      else if (!slot) bad += 1000;
+      else if (slot[0] > start) {
+        bad += (slot[0] - start) * 0.5; // 문 열 때까지 기다림
+        start = slot[0];
+      }
+    }
     if (s.isNew) {
       const fin = start + stayOf(p);
-      if (fin > DAY_TO) bad += (fin - DAY_TO) * 4; // 너무 늦게까지
+      const endOK = hrs?.length ? NIGHT_TO : nightOk(p) ? NIGHT_TO : DAY_TO;
+      if (fin > endOK) bad += (fin - endOK) * 4 + (fin > endOK + 30 ? 1000 : 0); // 너무 늦게까지
+      if (ONSEN.test(`${p.title} ${p.place}`) && start < 17 * 60) bad += (17 * 60 - start) * 1.2; // 온천은 저녁에
+      if (MORNING.test(`${p.title} ${p.place}`) && start > 12 * 60) bad += (start - 12 * 60) * 3; // 대여는 오전에
       if (p.type === 'food') {
         const off = Math.min(...MEALS.map(([a, b]) => (start < a ? a - start : start > b ? start - b : 0)));
         bad += off * 1.5; // 밥 먹을 때가 아님
         if (prev?.it.type === 'food') bad += 90; // 밥 먹고 바로 또 밥
       }
-      if (p.type === 'sight' && start > 17 * 60 + 30) bad += (start - (17 * 60 + 30)) * 1.5; // 구경거리는 저녁이면 닫는 곳이 많음
-      if (p.type === 'sight' && start > 19 * 60 + 30) bad += 1000; // 밤늦게 구경은 넣지 않음
-      if (p.type !== 'food' && start > 20 * 60 + 30) bad += 1000;
+      if (!hrs && !nightOk(p) && start > 16 * 60 + 30) bad += (start - (16 * 60 + 30)) * 3; // 영업시간을 모르면: 구경거리는 저녁이면 닫는 곳이 많음
+      if (!hrs && !nightOk(p) && start > 19 * 60 + 30) bad += 1000; // 밤늦게 구경은 넣지 않음
     } else if (!s.fixed && start > mins(p.time)) bad += (start - mins(p.time)) * 2 + (start - mins(p.time) > 30 ? 1000 : 0); // 원래 일정이 밀림 (30분 넘게 밀리면 안 넣음)
     at.push(start);
     end = start + stayOf(p);
@@ -525,7 +556,7 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   // 날마다 쓸 수 있는 시간
   const free = ds.map((d, k) => {
     const items = dayItems(t, d);
-    let from = DAY_FROM, to = DAY_TO;
+    let from = DAY_FROM, to = DAY_TO + 60; // 밤에 상점가·온천 등도 가니 조금 늦게까지
     const ports = items.filter(isPort);
     const first = k === 0 && ds.length > 1, last = k === ds.length - 1 && k > 0;
     if (first) {
@@ -792,6 +823,16 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
       .filter((x) => !(farFrom(x, u.geo) && prio(u) < 1))
       .sort((p, q) => (u.geo && center[p] ? offDay(p, u.geo, center[p]) : 0) - (u.geo && center[q] ? offDay(q, u.geo, center[q]) : 0));
     if (!days.some((x) => tryPlace(x, u))) left.push(u);
+  }
+  // 마지막으로: 어림한 남은 시간과 상관없이, 실제로 시간을 매겨 봐서 들어가면 넣음 (가까운 날부터)
+  for (const u of [...left].sort((p, q) => prio(q) - prio(p))) {
+    const days = ds
+      .map((_, x) => x)
+      .filter((x) => !seqs[x].some((s) => s.u && isWholeDay(s.u.head)))
+      .filter((x) => !(isFood(u) && seqs[x].filter((s) => s.u && isFood(s.u)).length >= 3))
+      .filter((x) => !(u.geo && center[x] && km(u.geo, center[x]!) > REGION_KM * 1.5 && prio(u) < 1))
+      .sort((p, q) => (u.geo && center[p] ? offDay(p, u.geo, center[p]) : 0) - (u.geo && center[q] ? offDay(q, u.geo, center[q]) : 0));
+    if (days.some((x) => tryPlace(x, u))) left.splice(left.indexOf(u), 1);
   }
   ds.forEach((date, k) => {
     const seq = seqs[k], edge = edgeOf(k);

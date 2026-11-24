@@ -41,6 +41,11 @@ export interface Suggest {
 export function suggestPlaces(q: string, bias: [number, number], region: string, session: string): Promise<Suggest[]> {
   return post<{ list: Suggest[] }>('/api/maps/suggest', { q, bias, region, session }).then((r) => r.list);
 }
+/** 장소 id → 영업시간 (모르면 null, 못 받아오면 빠짐) */
+export function fetchHours(ids: string[]): Promise<Record<string, [number, number, number][] | null>> {
+  return post<{ hours: Record<string, [number, number, number][] | null> }>('/api/maps/hours', { ids }).then((r) => r.hours);
+}
+
 export function placeDetails(id: string, session?: string): Promise<PlaceHit> {
   return post<{ place: PlaceHit }>('/api/maps/place', { id, session }).then((r) => r.place);
 }

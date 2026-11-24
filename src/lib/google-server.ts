@@ -134,6 +134,23 @@ export async function autocomplete(req: Request, q: string, bias: [number, numbe
 }
 
 /** 자동완성에서 고른 장소의 위치 (같은 세션이면 자동완성 요금은 안 나감) */
+/** 구글 장소의 정기 영업시간 → [요일, 여는 분, 닫는 분]. 정보 없으면 null */
+export async function hoursById(req: Request, id: string): Promise<[number, number, number][] | null> {
+  const r = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(id)}`, { headers: googleHeaders(req, 'regularOpeningHours') });
+  if (!r.ok) throw new Error(`hours ${r.status}: ${await r.text()}`);
+  type T = { day: number; hour: number; minute: number };
+  const j = (await r.json()) as { regularOpeningHours?: { periods?: { open: T; close?: T }[] } };
+  const ps = j.regularOpeningHours?.periods;
+  if (!ps?.length) return null;
+  return ps.map(({ open, close }) => {
+    const o = open.hour * 60 + open.minute;
+    if (!close) return [open.day, 0, 2880]; // 24시간
+    let c = close.hour * 60 + close.minute + ((close.day - open.day + 7) % 7) * 1440;
+    if (c <= o) c += 1440;
+    return [open.day, o, c];
+  });
+}
+
 export async function placeById(req: Request, id: string, session?: string): Promise<PlaceHit> {
   const u = `https://places.googleapis.com/v1/places/${encodeURIComponent(id)}?languageCode=ko${session ? '&sessionToken=' + encodeURIComponent(session) : ''}`;
   const r = await fetch(u, { headers: googleHeaders(req, 'id,displayName,formattedAddress,location,primaryType') });
