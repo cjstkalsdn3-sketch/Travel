@@ -74,6 +74,8 @@ export interface PlanItem {
   wx?: WxNow;
   /** 함께 들르는 곳 (일정 하나에 여러 장소) */
   stops?: Stop[];
+  /** 영업시간 (담아둔 곳에서 가져옴) */
+  hours?: Hours | null;
 }
 
 export interface Expense {
@@ -109,6 +111,9 @@ export interface Booking {
   img: string | null;
 }
 
+/** 영업시간: [요일(0=일), 여는 시각(분), 닫는 시각(분, 자정 넘으면 1440 이상)] */
+export type Hours = [number, number, number][];
+
 export interface Wish {
   id: string;
   title: string;
@@ -122,6 +127,8 @@ export interface Wish {
   prio?: 1 | -1;
   /** 꼭 가고 싶다고 ★ 누른 사람 (둘 다 누르면 가장 먼저) */
   stars?: Person[];
+  /** 구글 영업시간. null = 구글에 정보 없음 (다시 안 물어봄) */
+  hours?: Hours | null;
 }
 
 /** 지금 안 쓰는 일정 안 (A안·B안). 지금 쓰는 안은 Trip.plan */

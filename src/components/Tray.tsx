@@ -6,6 +6,7 @@ import { ccStyle, SheetHead, useUI } from './ui';
 import { WishSheet } from './sheets';
 import { importShared } from '@/lib/importer';
 import { autoPlace, dayItems, placeBest, unplaced, wishScore, type AutoResult } from '@/lib/plan';
+import { fetchHours, mapsEnabled } from '@/lib/maps';
 import { updateTrip, useData, useSession, useTrip } from '@/lib/store';
 import type { Cat, Person, Trip, Wish } from '@/lib/types';
 import { daysOf, mdw, pd } from '@/lib/utils';
@@ -460,6 +461,26 @@ export function AutoSheet({ trip: trip0 }: { trip: Trip }) {
   const trip = useTrip(trip0.id) ?? trip0;
   const [lock, setLock] = useState<Record<string, string>>({});
   const [pickDay, setPickDay] = useState<string | null>(null);
+  // 구글 영업시간을 아직 안 받아온 곳은 받아와서 담아둔 곳에 저장 (한 번만)
+  const need = useMemo(() => unplaced(trip).filter((w) => w.geo?.placeId && w.hours === undefined).map((w) => w.geo!.placeId!), [trip]);
+  const [hoursBusy, setHoursBusy] = useState(false);
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!mapsEnabled || !need.length || asked.current) return;
+    asked.current = true;
+    setHoursBusy(true);
+    const chunks: string[][] = [];
+    for (let i = 0; i < need.length; i += 30) chunks.push(need.slice(i, i + 30));
+    Promise.all(chunks.map((c) => fetchHours(c).catch(() => ({}) as Record<string, null>)))
+      .then((rs) => {
+        const got = Object.assign({}, ...rs) as Record<string, [number, number, number][] | null>;
+        if (!Object.keys(got).length) return;
+        updateTrip(trip.id, (t) => {
+          for (const w of t.wish) if (w.geo?.placeId && w.geo.placeId in got) w.hours = got[w.geo.placeId];
+        });
+      })
+      .finally(() => setHoursBusy(false));
+  }, [need, trip.id]);
   // 지역 목록은 고정 없이 한 번 짜서 얻고, 고른 지역의 가운데를 그 날 중심으로
   const regions = useMemo(() => autoPlace(JSON.parse(JSON.stringify(trip)) as Trip).regions, [trip]);
   const geoLock = useMemo(() => Object.fromEntries(Object.entries(lock).flatMap(([d, k]) => { const c = regions.find((g) => g.key === k)?.center; return c ? [[d, c]] : []; })), [lock, regions]);
@@ -497,6 +518,7 @@ export function AutoSheet({ trip: trip0 }: { trip: Trip }) {
       <p className="sub" style={{ margin: 0 }}>
         {r.n ? `담아둔 곳 ${r.n}곳을 이렇게 넣어요.` : '넣을 수 있는 곳이 없어요.'} {leftText(r)}
         {regions.length > 1 && ' 날짜의 지역을 눌러 바꿀 수 있어요.'}
+        {hoursBusy && <span className="ap-hours"> 구글 영업시간 확인 중…</span>}
       </p>
       <ol className="ap-days">
         {days.map(({ d, items, fresh }, k) => {
@@ -564,7 +586,7 @@ export function AutoSheet({ trip: trip0 }: { trip: Trip }) {
           </p>
         </div>
       )}
-      <button className="primary" onClick={apply} disabled={!r.n}>이대로 넣기</button>
+      <button className="primary" onClick={apply} disabled={!r.n || hoursBusy}>{hoursBusy ? '영업시간 확인 중…' : '이대로 넣기'}</button>
     </>
   );
 }
