@@ -320,6 +320,14 @@ const FULL_DAY = 540;
 /** 하루를 통째로 쓰는 곳 (테마파크) */
 const WHOLE_DAY = /유니버(설|셜)|universal|USJ|디즈니|disney|레고랜드|legoland|후지큐|fuji-?q|에버랜드|롯데월드|시월드|seaworld|six flags|식스 ?플래그/i;
 const isWholeDay = (w: Pick<Wish, 'title' | 'place'>) => WHOLE_DAY.test(`${w.title} ${w.place}`);
+/** 밤에 가도 되는 곳: 상점가·시장·야경·전망대·온천 등 (밥집·쇼핑은 원래 늦게까지) */
+const NIGHT = /상점가|시장|거리|야경|전망대|스카이|타워|온천|스파|사우나|銭湯|도톤보리|돈키호테|이자카야|요코초|아케이드|쇼핑|몰|마켓|백화점|night|market|tower|onsen|spa|sky/i;
+const ONSEN = /온천|스파|사우나|銭湯|onsen|spa/i;
+/** 아침에 빌려서 하루 입고 다니는 것 (기모노 대여 등) */
+const MORNING = /렌탈|렌트|rental|대여|기모노|kimono|着物/i;
+const nightOk = (p: PlanItem) => !MORNING.test(`${p.title} ${p.place}`) && (p.type === 'food' || p.type === 'shop' || NIGHT.test(`${p.title} ${p.place}`) || !!p.stops?.some((x) => NIGHT.test(x.name)));
+/** 밤에 가도 되는 곳은 이때까지 */
+const NIGHT_TO = 22 * 60 + 30;
 /** 공항 일정: 항공으로 적었거나, 이름·장소에 공항이 들어간 일정 ("고베 공항 (UKB)") */
 const isPort = (p: PlanItem) => p.type === 'flight' || /공항|airport|空港|\([A-Z]{3}\)/i.test(`${p.title} ${p.place}`);
 const DAY_FROM = 9 * 60 + 30, DAY_TO = 21 * 60;
@@ -374,15 +382,17 @@ function simulate(seq: Slot[], edge: { first?: boolean; last?: boolean } = {}): 
     }
     if (s.isNew) {
       const fin = start + stayOf(p);
-      if (fin > DAY_TO) bad += (fin - DAY_TO) * 4; // 너무 늦게까지
+      const endOK = nightOk(p) ? NIGHT_TO : DAY_TO;
+      if (fin > endOK) bad += (fin - endOK) * 4 + (fin > endOK + 30 ? 1000 : 0); // 너무 늦게까지
+      if (ONSEN.test(`${p.title} ${p.place}`) && start < 17 * 60) bad += (17 * 60 - start) * 1.2; // 온천은 저녁에
+      if (MORNING.test(`${p.title} ${p.place}`) && start > 12 * 60) bad += (start - 12 * 60) * 3; // 대여는 오전에
       if (p.type === 'food') {
         const off = Math.min(...MEALS.map(([a, b]) => (start < a ? a - start : start > b ? start - b : 0)));
         bad += off * 1.5; // 밥 먹을 때가 아님
         if (prev?.it.type === 'food') bad += 90; // 밥 먹고 바로 또 밥
       }
-      if (p.type === 'sight' && start > 17 * 60 + 30) bad += (start - (17 * 60 + 30)) * 1.5; // 구경거리는 저녁이면 닫는 곳이 많음
-      if (p.type === 'sight' && start > 19 * 60 + 30) bad += 1000; // 밤늦게 구경은 넣지 않음
-      if (p.type !== 'food' && start > 20 * 60 + 30) bad += 1000;
+      if (!nightOk(p) && start > 16 * 60 + 30) bad += (start - (16 * 60 + 30)) * 3; // 구경거리는 저녁이면 닫는 곳이 많음
+      if (!nightOk(p) && start > 19 * 60 + 30) bad += 1000; // 밤늦게 구경은 넣지 않음
     } else if (!s.fixed && start > mins(p.time)) bad += (start - mins(p.time)) * 2 + (start - mins(p.time) > 30 ? 1000 : 0); // 원래 일정이 밀림 (30분 넘게 밀리면 안 넣음)
     at.push(start);
     end = start + stayOf(p);
@@ -525,7 +535,7 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
   // 날마다 쓸 수 있는 시간
   const free = ds.map((d, k) => {
     const items = dayItems(t, d);
-    let from = DAY_FROM, to = DAY_TO;
+    let from = DAY_FROM, to = DAY_TO + 60; // 밤에 상점가·온천 등도 가니 조금 늦게까지
     const ports = items.filter(isPort);
     const first = k === 0 && ds.length > 1, last = k === ds.length - 1 && k > 0;
     if (first) {
@@ -792,6 +802,16 @@ export function autoPlace(t: Trip, ids?: string[], opts: { lock?: Record<string,
       .filter((x) => !(farFrom(x, u.geo) && prio(u) < 1))
       .sort((p, q) => (u.geo && center[p] ? offDay(p, u.geo, center[p]) : 0) - (u.geo && center[q] ? offDay(q, u.geo, center[q]) : 0));
     if (!days.some((x) => tryPlace(x, u))) left.push(u);
+  }
+  // 마지막으로: 어림한 남은 시간과 상관없이, 실제로 시간을 매겨 봐서 들어가면 넣음 (가까운 날부터)
+  for (const u of [...left].sort((p, q) => prio(q) - prio(p))) {
+    const days = ds
+      .map((_, x) => x)
+      .filter((x) => !seqs[x].some((s) => s.u && isWholeDay(s.u.head)))
+      .filter((x) => !(isFood(u) && seqs[x].filter((s) => s.u && isFood(s.u)).length >= 3))
+      .filter((x) => !(u.geo && center[x] && km(u.geo, center[x]!) > REGION_KM * 1.5 && prio(u) < 1))
+      .sort((p, q) => (u.geo && center[p] ? offDay(p, u.geo, center[p]) : 0) - (u.geo && center[q] ? offDay(q, u.geo, center[q]) : 0));
+    if (days.some((x) => tryPlace(x, u))) left.splice(left.indexOf(u), 1);
   }
   ds.forEach((date, k) => {
     const seq = seqs[k], edge = edgeOf(k);
